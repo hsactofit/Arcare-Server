@@ -193,3 +193,47 @@ Login with new password status: 200
 ALL AUTHENTICATION AND OTP TESTS PASSED SUCCESSFULLY!
 ```
 
+---
+
+## Combined Sync & Dashboard Endpoint Integration (New Update)
+A unified daily health synchronization and dashboard response endpoint has been successfully integrated.
+
+### API Endpoint details
+* **`POST /api/dashboard/sync/{email}`**
+  * **Request Body**: A JSON Array of daily health records covering up to the last 7 days (`List[schemas.DailyHealthData]`).
+  * **Response Body**:
+    ```json
+    {
+      "wellness_score": 86,
+      "daily_summary": "Incredible progress! You are average 6,907 steps daily and hitting your sleep goals. Keep tracking your hydration to increase your wellness metrics.",
+      "recommendations": [
+        "To support weight loss, focus on a high-protein breakfast and log your water intake early.",
+        "Aim for a 10-minute brisk walk every 2 hours to keep your metabolic rate elevated.",
+        "Try scheduling a brief 15-minute stretch routine during mid-day break.",
+        "Increase your daily water intake by 500 ml to meet standard hydration guidelines."
+      ],
+      "ai_buddy_message": "Hello Champion! I noticed you average 7.5 hours of sleep this week, which is excellent. Let's aim to hit 10,000 steps today to secure your new streak record!"
+    }
+    ```
+  * **Behavior**:
+    * Authenticates user presence in DB.
+    * Parses and updates/synchronizes the 7-day health metrics in the backend database.
+    * Computes 7-day averages for health metrics and compares them against personalized user goal targets (e.g. Lose Weight, Stay Active).
+    * Calculates the user's current wellness score based on historical averages.
+    * Composes dynamic `daily_summary` and `ai_buddy_message` containing actual average stats and targets.
+    * Generates personalized actionable tips inside the `recommendations` list.
+
+### Test Verification Log
+```text
+--- 20. Testing Combined Dashboard Sync Endpoint ---
+Status Code: 200
+Response keys: ['wellness_score', 'daily_summary', 'recommendations', 'ai_buddy_message']
+wellness_score: 86
+daily_summary: Incredible progress! You are average 6,907 steps daily and hitting your sleep goals. Keep tracking your hydration to increase your wellness metrics.
+recommendations: ['To support weight loss, focus on a high-protein breakfast and log your water intake early.', 'Aim for a 10-minute brisk walk every 2 hours to keep your metabolic rate elevated.', 'Try scheduling a brief 15-minute stretch routine during mid-day break.', 'Increase your daily water intake by 500 ml to meet standard hydration guidelines.']
+ai_buddy_message: Hello Champion! I noticed you average 7.5 hours of sleep this week, which is excellent. Let's aim to hit 10,000 steps today to secure your new streak record!
+
+ALL AUTHENTICATION, OTP, HEALTH AND DASHBOARD TESTS PASSED SUCCESSFULLY!
+```
+
+

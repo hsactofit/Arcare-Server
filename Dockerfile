@@ -19,5 +19,9 @@ COPY . .
 # Expose port 8000
 EXPOSE 8000
 
-# Start command, binding to 0.0.0.0 to allow access from local network
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Make entrypoint script executable
+RUN chmod +x entrypoint.sh
+
+# Run entrypoint script
+ENTRYPOINT ["./entrypoint.sh"]
+

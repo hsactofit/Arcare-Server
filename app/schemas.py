@@ -46,15 +46,17 @@ class OnboardingSubmission(BaseModel):
     onboarding_completed: bool = True
 
 # Health Data Sync Request Schema
-class HealthDataSync(BaseModel):
-    steps: Optional[int] = None
-    calories: Optional[int] = None
-    sleep_duration_hours: Optional[float] = None
-    water_intake_ml: Optional[int] = None
-    workouts_count: Optional[int] = None
-    heart_rate_bpm: Optional[int] = None
+class DailyHealthData(BaseModel):
+    date: date
+    steps: Optional[int] = 0
+    calories: Optional[int] = 0
+    sleep_duration_hours: Optional[float] = 0.0
+    water_intake_ml: Optional[int] = 0
+    workouts_count: Optional[int] = 0
+    heart_rate_bpm: Optional[int] = 70
 
-class HealthDataResponse(BaseModel):
+class DailyHealthDataResponse(BaseModel):
+    date: date
     steps: int
     calories: int
     sleep_duration_hours: float
@@ -79,6 +81,15 @@ class DashboardResponse(BaseModel):
     daily_summary: str
     recommendations: List[str]
     widgets: List[DashboardWidget]
+    last_synced_date: Optional[date] = None
+
+class DashboardSyncResponse(BaseModel):
+    wellness_score: int
+    daily_summary: str
+    recommendations: List[str]
+    ai_buddy_message: str
+
+
 
 # Generic API message
 class MessageResponse(BaseModel):
@@ -116,6 +127,7 @@ class UserDetailResponse(BaseModel):
     provider: str
     onboarding_completed: bool
     completed_at: Optional[datetime] = None
+    last_sync_date: Optional[datetime] = None
     profile: Optional[ProfileSchema] = None
     goals: List[str] = Field(default_factory=list)
     permissions: Optional[PermissionsSchema] = None

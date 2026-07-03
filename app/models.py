@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -82,6 +82,7 @@ class HealthData(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    date = Column(Date, nullable=False)
     steps = Column(Integer, default=0)
     calories = Column(Integer, default=0)
     sleep_duration_hours = Column(Float, default=0.0)
@@ -90,7 +91,10 @@ class HealthData(Base):
     heart_rate_bpm = Column(Integer, default=70)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    __table_args__ = (UniqueConstraint('user_id', 'date', name='_user_date_uc'),)
+
     user = relationship("User", back_populates="health_data")
+
 
 
 class PasswordResetOTP(Base):

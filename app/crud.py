@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
+from typing import List
 from app import models, schemas
 from app.security import hash_password, verify_password
 
@@ -130,11 +131,16 @@ def save_user_onboarding(db: Session, data: schemas.OnboardingSubmission):
         )
         db.add(db_health_perm)
 
-    # 6. Initialize default health data if not existing
-    db_health = db.query(models.HealthData).filter(models.HealthData.user_id == db_user.id).first()
+    # 6. Initialize default health data for today if not existing
+    today = date.today()
+    db_health = db.query(models.HealthData).filter(
+        models.HealthData.user_id == db_user.id,
+        models.HealthData.date == today
+    ).first()
     if not db_health:
         db_health = models.HealthData(
             user_id=db_user.id,
+            date=today,
             steps=6200 if h_connected else 0,
             calories=350 if h_connected else 0,
             sleep_duration_hours=7.2 if h_connected else 0.0,
@@ -148,40 +154,63 @@ def save_user_onboarding(db: Session, data: schemas.OnboardingSubmission):
     db.refresh(db_user)
     return db_user
 
-def sync_user_health_data(db: Session, email: str, sync_data: schemas.HealthDataSync):
+def sync_user_health_data(db: Session, email: str, sync_list: List[schemas.DailyHealthData]):
     user = get_user_by_email(db, email)
     if not user:
         return None
-    
-    db_health = db.query(models.HealthData).filter(models.HealthData.user_id == user.id).first()
-    if not db_health:
-        db_health = models.HealthData(user_id=user.id)
-        db.add(db_health)
-        
-    # Update fields that are provided
-    if sync_data.steps is not None:
-        db_health.steps = sync_data.steps
-    if sync_data.calories is not None:
-        db_health.calories = sync_data.calories
-    if sync_data.sleep_duration_hours is not None:
-        db_health.sleep_duration_hours = sync_data.sleep_duration_hours
-    if sync_data.water_intake_ml is not None:
-        db_health.water_intake_ml = sync_data.water_intake_ml
-    if sync_data.workouts_count is not None:
-        db_health.workouts_count = sync_data.workouts_count
-    if sync_data.heart_rate_bpm is not None:
-        db_health.heart_rate_bpm = sync_data.heart_rate_bpm
-        
-    db_health.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(db_health)
-    return db_health
 
-def get_user_health_data(db: Session, email: str):
+    updated_records = []
+    for item in sync_list:
+        db_health = db.query(models.HealthData).filter(
+            models.HealthData.user_id == user.id,
+            models.HealthData.date == item.date
+        ).first()
+
+        if not db_health:
+            db_health = models.HealthData(
+                user_id=user.id,
+                date=item.date
+            )
+            db.add(db_health)
+
+        # Update fields that are provided
+        if item.steps is not None:
+            db_health.steps = item.steps
+        if item.calories is not None:
+            db_health.calories = item.calories
+        if item.sleep_duration_hours is not None:
+            db_health.sleep_duration_hours = item.sleep_duration_hours
+        if item.water_intake_ml is not None:
+            db_health.water_intake_ml = item.water_intake_ml
+        if item.workouts_count is not None:
+            db_health.workouts_count = item.workouts_count
+        if item.heart_rate_bpm is not None:
+            db_health.heart_rate_bpm = item.heart_rate_bpm
+
+        db_health.updated_at = datetime.now(timezone.utc)
+        updated_records.append(db_health)
+
+    db.commit()
+    for r in updated_records:
+        db.refresh(r)
+    return updated_records
+
+def get_latest_user_health_data(db: Session, email: str):
     user = get_user_by_email(db, email)
     if not user:
         return None
-    return db.query(models.HealthData).filter(models.HealthData.user_id == user.id).first()
+    return db.query(models.HealthData).filter(
+        models.HealthData.user_id == user.id
+    ).order_by(models.HealthData.date.desc()).first()
+
+def get_recent_user_health_data(db: Session, email: str, limit: int = 7):
+    user = get_user_by_email(db, email)
+    if not user:
+        return []
+    return db.query(models.HealthData).filter(
+        models.HealthData.user_id == user.id
+    ).order_by(models.HealthData.date.desc()).limit(limit).all()
+
 
 def create_email_user(db: Session, signup_data: schemas.UserSignUp):
     db_user = models.User(
@@ -235,6 +264,9 @@ def get_user_auth_details(user: models.User):
             "health_connect_connected": user.health_permission.health_connect_connected if user.health_permission else False
         }
 
+    recent_syncs = [h.updated_at for h in user.health_data if h.updated_at is not None]
+    last_sync_date = max(recent_syncs) if recent_syncs else None
+
     return {
         "id": user.id,
         "email": user.email,
@@ -242,6 +274,7 @@ def get_user_auth_details(user: models.User):
         "provider": user.provider,
         "onboarding_completed": user.onboarding_completed,
         "completed_at": user.completed_at,
+        "last_sync_date": last_sync_date,
         "profile": profile_data,
         "goals": goals_list,
         "permissions": permissions_data

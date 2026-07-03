@@ -10,7 +10,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - arcar_postgres_data:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d my_database"]
       interval: 5s
@@ -44,13 +44,11 @@ services:
     ports:
       - "8082:80"
     volumes:
-      - arcar_pgadmin_data:/var/lib/pgadmin
+      - pgadmin_data:/var/lib/pgadmin
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
-  arcar_postgres_data:
-    driver: local
-  arcar_pgadmin_data:
-    driver: local
+  pgadmin_data:
+
