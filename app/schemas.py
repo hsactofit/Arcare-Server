@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from datetime import datetime, date
+import datetime as dt_module
+
 
 # Auth schema
 class AuthSchema(BaseModel):
@@ -67,6 +69,33 @@ class DailyHealthDataResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# Health Metrics Logging & Graph API Schemas
+class MetricLogRequest(BaseModel):
+    metric: str = Field(..., description="Metric type: e.g., steps, calories, sleep, water, workouts, heart_rate")
+    value: float = Field(..., description="Value to log for the metric")
+    date: Optional[dt_module.date] = Field(default=None, description="Date of the log (defaults to today)")
+
+class MetricLogResponse(BaseModel):
+    message: str
+    metric: str
+    value: float
+    date: dt_module.date
+    calories_burned: Optional[int] = None
+    health_data: DailyHealthDataResponse
+
+class MetricGraphDataPoint(BaseModel):
+    label: str = Field(..., description="Date label (e.g. YYYY-MM-DD, YYYY-MM, or YYYY)")
+    value: float = Field(..., description="Metric value or aggregated value")
+
+class MetricGraphResponse(BaseModel):
+    metric: str
+    period: str
+    data: List[MetricGraphDataPoint]
+    feedback: str
+    average: float
+    total: Optional[float] = None
+
 
 # Dashboard Widgets / Response Schema
 class DashboardWidget(BaseModel):

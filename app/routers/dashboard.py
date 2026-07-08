@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import List
 from app.database import get_db
 from app import schemas, crud, models
@@ -247,7 +247,7 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
     # Calculate today's manual water logs sum
     water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
         models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == date.today()
+        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
     ).scalar() or 0
 
     return schemas.DashboardResponse(
@@ -327,7 +327,7 @@ def sync_dashboard_data(
     # Calculate today's manual water logs sum
     water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
         models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == date.today()
+        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
     ).scalar() or 0
 
     return schemas.DashboardSyncResponse(

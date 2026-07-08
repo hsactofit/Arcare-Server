@@ -5,7 +5,7 @@ from app.database import get_db
 from app import schemas, crud, models
 from typing import List
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 router = APIRouter(
     prefix="/water",
@@ -29,7 +29,7 @@ def get_water_logs(email: str, db: Session = Depends(get_db)):
     # Calculate today's manual water logs sum
     water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
         models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == date.today()
+        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
     ).scalar() or 0
 
 

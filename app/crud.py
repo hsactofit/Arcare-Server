@@ -176,7 +176,14 @@ def sync_user_health_data(db: Session, email: str, sync_list: List[schemas.Daily
         # Update fields that are provided
         if item.steps is not None:
             db_health.steps = item.steps
-        if item.calories is not None:
+            # Calculate calories burned if steps is provided but calories is not
+            if item.calories is None or item.calories == 0:
+                weight = 70.0
+                if user.profile and user.profile.weight:
+                    weight = user.profile.weight
+                db_health.calories = int(round(item.steps * 0.0006125 * weight))
+
+        if item.calories is not None and (item.calories != 0 or item.steps is None):
             db_health.calories = item.calories
         if item.sleep_duration_hours is not None:
             db_health.sleep_duration_hours = item.sleep_duration_hours
@@ -358,7 +365,7 @@ def create_water_log(db: Session, email: str, log_data: schemas.WaterLogCreate):
     db.add(db_log)
     
     # Also update the daily aggregated health data for today
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     db_health = db.query(models.HealthData).filter(
         models.HealthData.user_id == user.id,
         models.HealthData.date == today

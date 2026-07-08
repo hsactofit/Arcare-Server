@@ -436,6 +436,66 @@ def run_tests():
     response = client.get(f"/api/water/logs/{signup_payload['email']}")
     assert response.json()["water_intake_today"] == 250
 
+    print("\n--- 26. Testing Health Metric Logging (POST /api/health/metric/{email}) ---")
+    metric_payload = {
+        "metric": "steps",
+        "value": 10000,
+        "date": date.today().isoformat()
+    }
+    response = client.post(f"/api/health/metric/{signup_payload['email']}", json=metric_payload)
+    assert response.status_code == 200
+    res_data = response.json()
+    assert res_data["metric"] == "steps"
+    assert res_data["value"] == 10000.0
+    # Steps metric should calculate calories burned (e.g. 10000 * 0.0006125 * weight)
+    # default weight is 70 kg, so 10000 * 0.0006125 * 70 = 428.75 -> 429 kcal (or weight of signup profile, weight is 70.0 kg in signup setup)
+    assert res_data["calories_burned"] is not None
+    assert res_data["calories_burned"] > 0
+    assert res_data["health_data"]["steps"] == 10000
+    assert res_data["health_data"]["calories"] == res_data["calories_burned"]
+
+    # Log sleep metric
+    sleep_payload = {
+        "metric": "sleep",
+        "value": 8.5,
+        "date": date.today().isoformat()
+    }
+    response = client.post(f"/api/health/metric/{signup_payload['email']}", json=sleep_payload)
+    assert response.status_code == 200
+    assert response.json()["health_data"]["sleep_duration_hours"] == 8.5
+
+    print("\n--- 27. Testing Metric Graph API (GET /api/health/graph/{email}) ---")
+    # Test period: days
+    response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=steps&period=days")
+    assert response.status_code == 200
+    graph_data = response.json()
+    assert graph_data["metric"] == "steps"
+    assert graph_data["period"] == "days"
+    assert len(graph_data["data"]) == 30
+    assert graph_data["average"] > 0
+    assert graph_data["total"] > 0
+    assert "Outstanding" in graph_data["feedback"] or "Good" in graph_data["feedback"] or "below" in graph_data["feedback"]
+
+    # Test period: month
+    response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=sleep&period=month")
+    assert response.status_code == 200
+    graph_data = response.json()
+    assert graph_data["metric"] == "sleep"
+    assert graph_data["period"] == "month"
+    assert len(graph_data["data"]) == 12
+    assert graph_data["average"] > 0
+    assert graph_data["total"] is None  # sleep shouldn't have total
+
+    # Test period: years
+    response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=heart_rate&period=years")
+    assert response.status_code == 200
+    graph_data = response.json()
+    assert graph_data["metric"] == "heart_rate"
+    assert graph_data["period"] == "years"
+    assert len(graph_data["data"]) == 5
+    assert graph_data["average"] > 0
+    assert "resting heart rate" in graph_data["feedback"]
+
     print("\nALL AUTHENTICATION, OTP, HEALTH, DASHBOARD, HYDRATION AND GRAPH TESTS PASSED SUCCESSFULLY!")
 
 if __name__ == "__main__":
