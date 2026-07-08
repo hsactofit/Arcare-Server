@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import date
 from typing import List
 from app.database import get_db
@@ -11,7 +12,96 @@ router = APIRouter(
 )
 
 
+def calculate_wellness_metrics(goals: List[str], recent_health: list, user_weight: float = None):
+    # Calculate 7-day average values
+    if recent_health:
+        num_records = len(recent_health)
+        avg_steps = sum(r.steps for r in recent_health) / num_records
+        avg_calories = sum(r.calories for r in recent_health) / num_records
+        avg_sleep = sum(r.sleep_duration_hours for r in recent_health) / num_records
+        avg_water = sum(r.water_intake_ml for r in recent_health) / num_records
+        avg_workouts = sum(r.workouts_count for r in recent_health) / num_records
+        avg_heart_rate = sum(r.heart_rate_bpm for r in recent_health) / num_records
+    else:
+        avg_steps, avg_calories, avg_sleep, avg_water = 0.0, 0.0, 0.0, 0.0
+        avg_workouts, avg_heart_rate = 0.0, 70.0
+
+    # Goals mapping
+    step_goal = 10000.0 if "Stay Active" in goals or "Lose Weight" in goals else 8000.0
+    sleep_goal = 8.0 if "Improve Sleep" in goals or "Reduce Stress" in goals else 7.0
+    water_goal = 2500.0 if "Eat Healthier" in goals or "Stay Active" in goals else 2000.0
+    
+    calorie_goal = 500.0
+    if user_weight:
+        calorie_goal = float(int(user_weight * 6))
+        if "Stay Active" in goals:
+            calorie_goal += 150.0
+            
+    exercise_goal = 60.0 # Standard active/exercise minutes goal
+
+    # Subscore calculations
+    # 1. Active Subscore (Weight: 35%)
+    # Inputs: Steps, Active Calories, and Exercise/Active Minutes (assume 30 mins per workout count)
+    active_minutes = avg_workouts * 30.0
+    steps_ratio = min(avg_steps / step_goal, 1.2)
+    calories_ratio = min(avg_calories / calorie_goal, 1.2)
+    exercise_ratio = min(active_minutes / exercise_goal, 1.2)
+    active_subscore = int(min((0.50 * steps_ratio + 0.30 * calories_ratio + 0.20 * exercise_ratio) * 100.0, 100.0))
+
+    # 2. Sleep Subscore (Weight: 25%)
+    # Inputs: Sleep Hours, and Sleep Quality Estimate Q derived from heart rate
+    duration_factor = max(0.0, 1.0 - 0.2 * abs(avg_sleep - sleep_goal))
+    sleep_quality_q = max(0.0, min(1.0, 1.0 - abs(avg_heart_rate - 65.0) / 35.0))
+    sleep_subscore = int(min((0.7 * duration_factor + 0.3 * sleep_quality_q) * 100.0, 100.0))
+
+    # 3. Nutrition Subscore (Weight: 20%)
+    # Inputs: Water Intake, Macro Balance Factor (assume 0.85 baseline if water > 0 else 0.5)
+    water_ratio = min(avg_water / water_goal, 1.0)
+    macro_balance = 0.85 if avg_water > 0 else 0.5
+    nutrition_subscore = int(min((0.60 * water_ratio + 0.40 * macro_balance) * 100.0, 100.0))
+
+    # 4. Mindfulness Subscore (Weight: 20%)
+    # Inputs: Mindfulness Minutes (assume min(avg_workouts * 10.0, 15.0)), Resting Heart Rate Stability
+    mindfulness_minutes = min(avg_workouts * 10.0, 15.0)
+    mindfulness_ratio = min(mindfulness_minutes / 15.0, 1.0)
+    hr_stability = max(0.0, min(1.0, 1.0 - abs(avg_heart_rate - 70.0) / 40.0))
+    mindfulness_subscore = int(min((0.50 * mindfulness_ratio + 0.50 * hr_stability) * 100.0, 100.0))
+
+    # Overall Wellness Score
+    # Formula: min(0.35 * Active + 0.25 * Sleep + 0.20 * Nutri + 0.20 * Mind, 100)
+    wellness_score = int(min(
+        0.35 * active_subscore + 
+        0.25 * sleep_subscore + 
+        0.20 * nutrition_subscore + 
+        0.20 * mindfulness_subscore, 
+        100.0
+    ))
+
+    return {
+        "wellness_score": wellness_score,
+        "active_subscore": active_subscore,
+        "sleep_subscore": sleep_subscore,
+        "nutrition_subscore": nutrition_subscore,
+        "mindfulness_subscore": mindfulness_subscore,
+        "goals": {
+            "step_goal": step_goal,
+            "sleep_goal": sleep_goal,
+            "water_goal": water_goal,
+            "calorie_goal": calorie_goal,
+            "exercise_goal": exercise_goal
+        },
+        "averages": {
+            "steps": avg_steps,
+            "calories": avg_calories,
+            "sleep": avg_sleep,
+            "water": avg_water,
+            "workouts": avg_workouts,
+            "heart_rate": avg_heart_rate
+        }
+    }
+
 @router.get("/{email}", response_model=schemas.DashboardResponse)
+
 def get_dashboard_data(email: str, db: Session = Depends(get_db)):
     """
     Retrieves dynamic dashboard details, widgets, wellness score, and customized tips
@@ -47,37 +137,15 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
     workouts = latest_data.workouts_count if latest_data else 0
     heart_rate = latest_data.heart_rate_bpm if latest_data else 72
 
-    # Calculate 7-day average values for the Wellness Score
-    if recent_health:
-        num_records = len(recent_health)
-        avg_steps = sum(r.steps for r in recent_health) / num_records
-        avg_calories = sum(r.calories for r in recent_health) / num_records
-        avg_sleep = sum(r.sleep_duration_hours for r in recent_health) / num_records
-        avg_water = sum(r.water_intake_ml for r in recent_health) / num_records
-    else:
-        avg_steps, avg_calories, avg_sleep, avg_water = 0, 0, 0, 0
-
-    # 4. Compute Targets and Wellness Score based on Goals
-    step_target = 10000 if "Stay Active" in goals or "Lose Weight" in goals else 8000
-    sleep_target = 8.0 if "Improve Sleep" in goals or "Reduce Stress" in goals else 7.0
-    water_target = 2500 if "Eat Healthier" in goals or "Stay Active" in goals else 2000
+    user_weight = user.profile.weight if user.profile else None
+    metrics = calculate_wellness_metrics(goals, recent_health, user_weight)
     
-    # Simple Weight Loss calories calculation
-    calorie_target = 500
-    if user.profile and user.profile.weight:
-        # Standard active calorie burn target
-        calorie_target = int(user.profile.weight * 6)
-        if "Stay Active" in goals:
-            calorie_target += 150
+    wellness_score = metrics["wellness_score"]
+    step_target = int(metrics["goals"]["step_goal"])
+    sleep_target = metrics["goals"]["sleep_goal"]
+    water_target = int(metrics["goals"]["water_goal"])
+    calorie_target = int(metrics["goals"]["calorie_goal"])
 
-    # Calculate Wellness Score out of 100 using averages
-    # Steps: 30%, Calories: 25%, Sleep: 25%, Water: 20%
-    steps_score = min(avg_steps / step_target, 1.0) * 30
-    calories_score = min(avg_calories / calorie_target, 1.0) * 25
-    sleep_score = min(avg_sleep / sleep_target, 1.0) * 25
-    water_score = min(avg_water / water_target, 1.0) * 20
-    wellness_score = int(steps_score + calories_score + sleep_score + water_score)
-    
     # Ensure minimum wellness score if health connect is not active yet
     if not user.health_permission or not user.health_permission.health_connect_connected:
         wellness_score = 65  # Base onboarding wellness score
@@ -176,13 +244,21 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
         f"Your current daily wellness score is {wellness_score}%."
     )
 
+    # Calculate today's manual water logs sum
+    water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
+        models.WaterLog.user_id == user.id,
+        func.date(models.WaterLog.timestamp) == date.today()
+    ).scalar() or 0
+
     return schemas.DashboardResponse(
         wellness_score=wellness_score,
         daily_summary=summary_text,
         recommendations=recommendations,
         widgets=widgets,
+        water_intake_today=water_intake_today,
         last_synced_date=last_synced_date
     )
+
 
 @router.post("/sync/{email}", response_model=schemas.DashboardSyncResponse)
 def sync_dashboard_data(
@@ -210,35 +286,16 @@ def sync_dashboard_data(
     # 3. Retrieve Last 7 Days of Synced Health Data (including the ones just synced)
     recent_health = crud.get_recent_user_health_data(db, email, limit=7)
 
-    # Calculate 7-day average values for the Wellness Score
-    if recent_health:
-        num_records = len(recent_health)
-        avg_steps = sum(r.steps for r in recent_health) / num_records
-        avg_calories = sum(r.calories for r in recent_health) / num_records
-        avg_sleep = sum(r.sleep_duration_hours for r in recent_health) / num_records
-        avg_water = sum(r.water_intake_ml for r in recent_health) / num_records
-    else:
-        avg_steps, avg_calories, avg_sleep, avg_water = 0, 0, 0.0, 0
-
     # 4. Compute Targets and Wellness Score based on Goals
-    step_target = 10000 if "Stay Active" in goals or "Lose Weight" in goals else 8000
-    sleep_target = 8.0 if "Improve Sleep" in goals or "Reduce Stress" in goals else 7.0
-    water_target = 2500 if "Eat Healthier" in goals or "Stay Active" in goals else 2000
+    user_weight = user.profile.weight if user.profile else None
+    metrics = calculate_wellness_metrics(goals, recent_health, user_weight)
     
-    calorie_target = 500
-    if user.profile and user.profile.weight:
-        calorie_target = int(user.profile.weight * 6)
-        if "Stay Active" in goals:
-            calorie_target += 150
+    wellness_score = metrics["wellness_score"]
+    step_target = int(metrics["goals"]["step_goal"])
+    sleep_target = metrics["goals"]["sleep_goal"]
+    water_target = int(metrics["goals"]["water_goal"])
+    calorie_target = int(metrics["goals"]["calorie_goal"])
 
-    # Calculate Wellness Score out of 100 using averages
-    # Steps: 30%, Calories: 25%, Sleep: 25%, Water: 20%
-    steps_score = min(avg_steps / step_target, 1.0) * 30
-    calories_score = min(avg_calories / calorie_target, 1.0) * 25
-    sleep_score = min(avg_sleep / sleep_target, 1.0) * 25
-    water_score = min(avg_water / water_target, 1.0) * 20
-    wellness_score = int(steps_score + calories_score + sleep_score + water_score)
-    
     # Ensure minimum wellness score if health connect is not active yet
     if not user.health_permission or not user.health_permission.health_connect_connected:
         wellness_score = 65  # Base onboarding wellness score
@@ -256,7 +313,7 @@ def sync_dashboard_data(
     if "Improve Sleep" in goals or "Reduce Stress" in goals:
         recommendations.append("Establish a screen-free wind-down routine 45 minutes before sleep to boost melatonin.")
 
-    if avg_water < water_target:
+    if metrics["averages"]["water"] < water_target:
         recommendations.append("Increase your daily water intake by 500 ml to meet standard hydration guidelines.")
 
     # Default recommendation if empty
@@ -264,13 +321,25 @@ def sync_dashboard_data(
         recommendations.append("Consistency is key! Start by tracking your steps and drinking 8 glasses of water today.")
 
     # 6. Compose dynamic daily summary and ai buddy message
-    daily_summary = f"Incredible progress! You are average {int(avg_steps):,} steps daily and hitting your sleep goals. Keep tracking your hydration to increase your wellness metrics."
-    ai_buddy_message = f"Hello Champion! I noticed you average {avg_sleep:.1f} hours of sleep this week, which is excellent. Let's aim to hit {step_target:,} steps today to secure your new streak record!"
+    daily_summary = f"Incredible progress! You are average {int(metrics['averages']['steps']):,} steps daily and hitting your sleep goals. Keep tracking your hydration to increase your wellness metrics."
+    ai_buddy_message = f"Hello Champion! I noticed you average {metrics['averages']['sleep']:.1f} hours of sleep this week, which is excellent. Let's aim to hit {step_target:,} steps today to secure your new streak record!"
+
+    # Calculate today's manual water logs sum
+    water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
+        models.WaterLog.user_id == user.id,
+        func.date(models.WaterLog.timestamp) == date.today()
+    ).scalar() or 0
 
     return schemas.DashboardSyncResponse(
         wellness_score=wellness_score,
+        active_subscore=metrics["active_subscore"],
+        sleep_subscore=metrics["sleep_subscore"],
+        nutrition_subscore=metrics["nutrition_subscore"],
+        mindfulness_subscore=metrics["mindfulness_subscore"],
         daily_summary=daily_summary,
         recommendations=recommendations,
-        ai_buddy_message=ai_buddy_message
+        ai_buddy_message=ai_buddy_message,
+        water_intake_today=water_intake_today,
+        goals=metrics["goals"]
     )
 

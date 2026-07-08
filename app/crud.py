@@ -337,3 +337,124 @@ def reset_user_password(db: Session, email: str, new_password: str) -> bool:
     return True
 
 
+def get_user_water_logs(db: Session, email: str, limit: int = 7):
+    user = get_user_by_email(db, email)
+    if not user:
+        return []
+    return db.query(models.WaterLog).filter(
+        models.WaterLog.user_id == user.id
+    ).order_by(models.WaterLog.timestamp.desc()).limit(limit).all()
+
+
+def create_water_log(db: Session, email: str, log_data: schemas.WaterLogCreate):
+    user = get_user_by_email(db, email)
+    if not user:
+        return None
+    db_log = models.WaterLog(
+        user_id=user.id,
+        amount=log_data.amount,
+        timestamp=log_data.timestamp or datetime.now(timezone.utc)
+    )
+    db.add(db_log)
+    
+    # Also update the daily aggregated health data for today
+    today = date.today()
+    db_health = db.query(models.HealthData).filter(
+        models.HealthData.user_id == user.id,
+        models.HealthData.date == today
+    ).first()
+    
+    if not db_health:
+        db_health = models.HealthData(
+            user_id=user.id,
+            date=today,
+            water_intake_ml=log_data.amount
+        )
+        db.add(db_health)
+    else:
+        db_health.water_intake_ml += log_data.amount
+        db_health.updated_at = datetime.now(timezone.utc)
+        
+    db.commit()
+    db.refresh(db_log)
+    return db_log
+
+
+def get_water_log_by_id(db: Session, log_id: int):
+    return db.query(models.WaterLog).filter(models.WaterLog.id == log_id).first()
+
+
+def update_water_log(db: Session, db_log: models.WaterLog, log_data: schemas.WaterLogCreate):
+    old_amount = db_log.amount
+    old_date = db_log.timestamp.date()
+    
+    # Update log properties
+    db_log.amount = log_data.amount
+    if log_data.timestamp:
+        db_log.timestamp = log_data.timestamp
+    
+    new_date = db_log.timestamp.date()
+    amount_diff = log_data.amount - old_amount
+    
+    # Update aggregated health data
+    if old_date == new_date:
+        db_health = db.query(models.HealthData).filter(
+            models.HealthData.user_id == db_log.user_id,
+            models.HealthData.date == old_date
+        ).first()
+        if db_health:
+            db_health.water_intake_ml += amount_diff
+            db_health.updated_at = datetime.now(timezone.utc)
+    else:
+        # Subtract from old date
+        db_health_old = db.query(models.HealthData).filter(
+            models.HealthData.user_id == db_log.user_id,
+            models.HealthData.date == old_date
+        ).first()
+        if db_health_old:
+            db_health_old.water_intake_ml = max(0, db_health_old.water_intake_ml - old_amount)
+            db_health_old.updated_at = datetime.now(timezone.utc)
+            
+        # Add to new date
+        db_health_new = db.query(models.HealthData).filter(
+            models.HealthData.user_id == db_log.user_id,
+            models.HealthData.date == new_date
+        ).first()
+        if not db_health_new:
+            db_health_new = models.HealthData(
+                user_id=db_log.user_id,
+                date=new_date,
+                water_intake_ml=log_data.amount
+            )
+            db.add(db_health_new)
+        else:
+            db_health_new.water_intake_ml += log_data.amount
+            db_health_new.updated_at = datetime.now(timezone.utc)
+            
+    db.commit()
+    db.refresh(db_log)
+    return db_log
+
+
+def delete_water_log(db: Session, db_log: models.WaterLog):
+    amount = db_log.amount
+    log_date = db_log.timestamp.date()
+    user_id = db_log.user_id
+    
+    # Delete the log
+    db.delete(db_log)
+    
+    # Subtract from aggregated health data
+    db_health = db.query(models.HealthData).filter(
+        models.HealthData.user_id == user_id,
+        models.HealthData.date == log_date
+    ).first()
+    if db_health:
+        db_health.water_intake_ml = max(0, db_health.water_intake_ml - amount)
+        db_health.updated_at = datetime.now(timezone.utc)
+        
+    db.commit()
+
+
+
+

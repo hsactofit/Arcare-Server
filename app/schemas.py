@@ -81,13 +81,21 @@ class DashboardResponse(BaseModel):
     daily_summary: str
     recommendations: List[str]
     widgets: List[DashboardWidget]
+    water_intake_today: int
     last_synced_date: Optional[date] = None
 
 class DashboardSyncResponse(BaseModel):
     wellness_score: int
+    active_subscore: int
+    sleep_subscore: int
+    nutrition_subscore: int
+    mindfulness_subscore: int
     daily_summary: str
     recommendations: List[str]
     ai_buddy_message: str
+    water_intake_today: int
+    goals: dict[str, float]
+
 
 
 
@@ -157,5 +165,48 @@ class VerifyOTPResponse(BaseModel):
 class ResetPasswordRequest(BaseModel):
     reset_token: str
     new_password: str = Field(..., min_length=6, description="New password must be at least 6 characters")
+
+
+class WaterLogResponse(BaseModel):
+    id: int
+    amount: int
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WaterLogCreate(BaseModel):
+    amount: int
+    timestamp: Optional[datetime] = None
+
+
+class HydrationHistoryResponse(BaseModel):
+    water_intake_today: int
+    logs: List[WaterLogResponse]
+
+
+class WaterLogSubmitResponse(BaseModel):
+    id: int
+    message: str = "Water intake logged successfully"
+    amount: int
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WaterGraphDataPoint(BaseModel):
+    label: str
+    amount: int
+
+
+class WaterGraphResponse(BaseModel):
+    period: str
+    data: List[WaterGraphDataPoint]
+
+
+
+
 
 

@@ -22,6 +22,7 @@ class User(Base):
     notification_permission = relationship("NotificationPermission", back_populates="user", uselist=False, cascade="all, delete-orphan")
     health_permission = relationship("HealthPermission", back_populates="user", uselist=False, cascade="all, delete-orphan")
     health_data = relationship("HealthData", back_populates="user", cascade="all, delete-orphan")
+    water_logs = relationship("WaterLog", back_populates="user", cascade="all, delete-orphan")
 
 
 class Profile(Base):
@@ -105,4 +106,15 @@ class PasswordResetOTP(Base):
     otp = Column(String, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class WaterLog(Base):
+    __tablename__ = "water_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    amount = Column(Integer, nullable=False)  # in ml
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    user = relationship("User", back_populates="water_logs")
 
