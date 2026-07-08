@@ -249,6 +249,57 @@ Syncs wearable metrics from Google Health Connect or Apple Health.
 #### `GET /api/health/data/{email}`
 Fetches the latest synced health data.
 
+#### `POST /api/health/metric/{email}`
+Logs or updates a single health metric for the user. If the metric is `steps`, it automatically calculates and updates the `calories` burned.
+* **Request Body JSON Example:**
+```json
+{
+  "metric": "steps",
+  "value": 10000,
+  "date": "2026-07-09"
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "message": "Successfully logged steps value of 10000.0",
+  "metric": "steps",
+  "value": 10000.0,
+  "date": "2026-07-09",
+  "calories_burned": 429,
+  "health_data": {
+    "date": "2026-07-09",
+    "steps": 10000,
+    "calories": 429,
+    "sleep_duration_hours": 0.0,
+    "water_intake_ml": 0,
+    "workouts_count": 0,
+    "heart_rate_bpm": 70,
+    "updated_at": "2026-07-09T02:20:00Z"
+  }
+}
+```
+
+#### `GET /api/health/graph/{email}`
+Retrieves aggregated health metric graph data for the user based on the selected period: `days` (last 30 days daily), `month` (last 12 months monthly aggregates), or `years` (last 5 years yearly aggregates). Includes overall averages, totals (for sum-based metrics), and personalized health feedback.
+* **Query Parameters:**
+  * `metric` (required): The metric to fetch (`steps`, `calories`, `sleep`, `water`, `workouts`, or `heart_rate`).
+  * `period` (optional, default: `days`): Aggregation period (`days`, `month`, or `years`).
+* **Response (200 OK):**
+```json
+{
+  "metric": "steps",
+  "period": "days",
+  "data": [
+    { "label": "2026-07-08", "value": 8500.0 },
+    { "label": "2026-07-09", "value": 10000.0 }
+  ],
+  "feedback": "Outstanding! You average 9250 steps, maintaining a highly active lifestyle. Meeting this level consistently is excellent for cardiovascular health, weight management, and metabolic rate.",
+  "average": 9250.0,
+  "total": 18500.0
+}
+```
+
 ---
 
 ### 3. Dashboard API

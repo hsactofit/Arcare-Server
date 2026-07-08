@@ -22,7 +22,7 @@ except OperationalError:
     fallback_to_sqlite = True
 
 if fallback_to_sqlite:
-    test_db_url = "sqlite:////run/media/ponyo/New Volume/Ocavior/back-end/Arcare-Server/arcar.db"
+    test_db_url = "sqlite:///./test_api.db"
     print(f"Falling back to local SQLite database for testing: {test_db_url}")
     settings.DATABASE_URL = test_db_url
     engine = create_engine(test_db_url, connect_args={"check_same_thread": False})
