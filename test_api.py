@@ -471,10 +471,26 @@ def run_tests():
     graph_data = response.json()
     assert graph_data["metric"] == "steps"
     assert graph_data["period"] == "days"
-    assert len(graph_data["data"]) == 30
+    assert len(graph_data["data"]) == 7
     assert graph_data["average"] > 0
     assert graph_data["total"] > 0
     assert "Outstanding" in graph_data["feedback"] or "Good" in graph_data["feedback"] or "below" in graph_data["feedback"]
+    
+    # Assert that calories_total and calories_average are calculated
+    assert graph_data["calories_total"] is not None
+    assert graph_data["calories_average"] is not None
+    assert graph_data["calories_total"] == round(graph_data["total"] * 0.0006125 * 75.0, 1)
+    assert graph_data["calories_average"] == round(graph_data["average"] * 0.0006125 * 75.0, 1)
+
+    # Test period: weeks
+    response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=steps&period=weeks")
+    assert response.status_code == 200
+    graph_data = response.json()
+    assert graph_data["metric"] == "steps"
+    assert graph_data["period"] == "weeks"
+    assert len(graph_data["data"]) == 4
+    assert graph_data["average"] > 0
+    assert graph_data["total"] > 0
 
     # Test period: month
     response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=sleep&period=month")
@@ -482,9 +498,9 @@ def run_tests():
     graph_data = response.json()
     assert graph_data["metric"] == "sleep"
     assert graph_data["period"] == "month"
-    assert len(graph_data["data"]) == 12
+    assert len(graph_data["data"]) == 3
     assert graph_data["average"] > 0
-    assert graph_data["total"] is None  # sleep shouldn't have total
+    assert graph_data["total"] > 0  # sleep now has total duration calculated
 
     # Test period: years
     response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=heart_rate&period=years")

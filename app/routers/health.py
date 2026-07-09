@@ -88,11 +88,14 @@ def generate_metric_feedback(metric: str, average: float, total: Optional[float]
             
     elif "workout" in metric_clean:
         if period == "days":
-            text_period = "the past 30 days"
+            text_period = "the past 7 days"
+            target_work = 3
+        elif period == "weeks":
+            text_period = "the past 4 weeks"
             target_work = 12
         elif period == "month":
-            text_period = "the past 12 months"
-            target_work = 140
+            text_period = "the past 3 months"
+            target_work = 36
         else:
             text_period = "the past few years"
             target_work = 300
@@ -203,11 +206,11 @@ def log_metric(
 def get_metric_graph(
     email: str = Path(..., description="The registered user's email address"),
     metric: str = Query(..., description="Health metric type: 'steps', 'calories', 'sleep', 'water', 'workouts', or 'heart_rate'"),
-    period: str = Query("days", description="Aggregation period: 'days' (last 30 days daily), 'month' (last 12 months monthly), or 'years' (last 5 years yearly)"),
+    period: str = Query("days", description="Aggregation period: 'days' (last 7 days daily), 'weeks' (last 4 weeks weekly), 'month' (last 3 months monthly), or 'years' (last 5 years yearly)"),
     db: Session = Depends(get_db)
 ):
     """
-    Retrieves health metric graph data for a user based on the period: 'days', 'month', or 'years'.
+    Retrieves health metric graph data for a user based on the period: 'days', 'weeks', 'month', or 'years'.
     Includes aggregated data, averages, totals, and personalized health feedback.
     """
     user = crud.get_user_by_email(db, email)
@@ -217,6 +220,10 @@ def get_metric_graph(
             detail=f"User with email '{email}' not found. Please complete onboarding first."
         )
         
+    weight = 70.0
+    if user.profile and user.profile.weight:
+        weight = user.profile.weight
+
     metric_clean = metric.lower()
     metric_map = {
         "steps": "steps",
@@ -239,19 +246,37 @@ def get_metric_graph(
         
     col_name = metric_map[metric_clean]
     period_clean = period.lower()
-    if period_clean not in ["days", "month", "years"]:
+    if period_clean in ["days", "day", "7_days"]:
+        period_clean = "days"
+    elif period_clean in ["weeks", "week", "4_weeks"]:
+        period_clean = "weeks"
+    elif period_clean in ["month", "months", "3_months"]:
+        period_clean = "month"
+    elif period_clean in ["years", "year"]:
+        period_clean = "years"
+    else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid period. Choose from 'days', 'month', or 'years'."
+            detail="Invalid period. Choose from 'days', 'weeks', 'month', or 'years'."
         )
         
     today = date.today()
     
     # Define time frame for efficiency
     if period_clean == "days":
-        start_date = today - timedelta(days=29)
+        start_date = today - timedelta(days=6)
+    elif period_clean == "weeks":
+        start_date = today - timedelta(days=27)
     elif period_clean == "month":
-        start_date = today - timedelta(days=365)
+        # First day of the month 2 months ago (total 3 months: current, current-1, current-2)
+        current_year = today.year
+        current_month = today.month
+        target_month = current_month - 2
+        target_year = current_year
+        while target_month <= 0:
+            target_month += 12
+            target_year -= 1
+        start_date = date(target_year, target_month, 1)
     else:
         start_date = today - timedelta(days=365 * 5)
         
@@ -263,8 +288,8 @@ def get_metric_graph(
     default_val = 70.0 if "heart_rate" in metric_clean else 0.0
     
     if period_clean == "days":
-        # Last 30 days, daily data points
-        data_dict = {(today - timedelta(days=i)).strftime("%Y-%m-%d"): default_val for i in range(30)}
+        # Last 7 days, daily data points
+        data_dict = {(today - timedelta(days=i)).strftime("%Y-%m-%d"): default_val for i in range(7)}
         for r in health_logs:
             date_str = r.date.strftime("%Y-%m-%d")
             if date_str in data_dict:
@@ -275,12 +300,43 @@ def get_metric_graph(
         sorted_data = sorted(data_dict.items())
         data_points = [schemas.MetricGraphDataPoint(label=k, value=v) for k, v in sorted_data]
         
+    elif period_clean == "weeks":
+        # Last 4 weeks (28 days), weekly aggregated data points
+        # Each week is a 7-day block.
+        week_ranges = []
+        for i in range(4):
+            w_start = start_date + timedelta(days=i*7)
+            w_end = w_start + timedelta(days=6)
+            label = w_start.strftime("%Y-%m-%d")
+            week_ranges.append((w_start, w_end, label))
+            
+        data_dict = {label: [] for _, _, label in week_ranges}
+        for r in health_logs:
+            for w_start, w_end, label in week_ranges:
+                if w_start <= r.date <= w_end:
+                    val = getattr(r, col_name)
+                    if val is not None:
+                        data_dict[label].append(float(val))
+                    break
+                    
+        data_points = []
+        for _, _, label in week_ranges:
+            vals = data_dict[label]
+            if not vals:
+                val = default_val
+            else:
+                if metric_clean in ["sleep", "sleep_duration_hours", "heart_rate", "heart_rate_bpm"]:
+                    val = sum(vals) / len(vals)
+                else:
+                    val = sum(vals)
+            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1)))
+            
     elif period_clean == "month":
-        # Last 12 months, monthly aggregated data points
+        # Last 3 months, monthly aggregated data points
         monthly_labels = []
         current_year = today.year
         current_month = today.month
-        for i in range(12):
+        for i in range(3):
             m = current_month - i
             y = current_year
             while m <= 0:
@@ -339,17 +395,26 @@ def get_metric_graph(
     average = sum(dp.value for dp in data_points) / len(data_points) if data_points else 0.0
     
     total = None
-    if metric_clean not in ["sleep", "sleep_duration_hours", "heart_rate", "heart_rate_bpm"]:
+    if metric_clean not in ["heart_rate", "heart_rate_bpm"]:
         total = sum(dp.value for dp in data_points)
         
     feedback = generate_metric_feedback(metric_clean, average, total, period_clean)
     
+    calories_total = None
+    calories_average = None
+    if metric_clean == "steps":
+        calories_average = round(average * 0.0006125 * weight, 1)
+        if total is not None:
+            calories_total = round(total * 0.0006125 * weight, 1)
+    
     return schemas.MetricGraphResponse(
         metric=metric,
-        period=period,
+        period=period_clean,
         data=data_points,
         feedback=feedback,
         average=round(average, 1),
-        total=round(total, 1) if total is not None else None
+        total=round(total, 1) if total is not None else None,
+        calories_total=calories_total,
+        calories_average=calories_average
     )
 

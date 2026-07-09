@@ -95,6 +95,8 @@ class MetricGraphResponse(BaseModel):
     feedback: str
     average: float
     total: Optional[float] = None
+    calories_total: Optional[float] = None
+    calories_average: Optional[float] = None
 
 
 # Dashboard Widgets / Response Schema

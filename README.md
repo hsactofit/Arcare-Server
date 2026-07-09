@@ -281,10 +281,10 @@ Logs or updates a single health metric for the user. If the metric is `steps`, i
 ```
 
 #### `GET /api/health/graph/{email}`
-Retrieves aggregated health metric graph data for the user based on the selected period: `days` (last 30 days daily), `month` (last 12 months monthly aggregates), or `years` (last 5 years yearly aggregates). Includes overall averages, totals (for sum-based metrics), and personalized health feedback.
+Retrieves aggregated health metric graph data for the user based on the selected period: `days` (last 7 days daily), `weeks` (last 4 weeks weekly aggregates), `month` (last 3 months monthly aggregates), or `years` (last 5 years yearly aggregates). Includes overall averages, totals (for sum-based metrics), and personalized health feedback.
 * **Query Parameters:**
   * `metric` (required): The metric to fetch (`steps`, `calories`, `sleep`, `water`, `workouts`, or `heart_rate`).
-  * `period` (optional, default: `days`): Aggregation period (`days`, `month`, or `years`).
+  * `period` (optional, default: `days`): Aggregation period (`days`, `weeks`, `month`, or `years`).
 * **Response (200 OK):**
 ```json
 {
