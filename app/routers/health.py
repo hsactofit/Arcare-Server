@@ -93,12 +93,9 @@ def generate_metric_feedback(metric: str, average: float, total: Optional[float]
         elif period == "weeks":
             text_period = "the past 4 weeks"
             target_work = 12
-        elif period == "month":
+        else:
             text_period = "the past 3 months"
             target_work = 36
-        else:
-            text_period = "the past few years"
-            target_work = 300
             
         tot = total if total is not None else 0
         if tot >= target_work:
@@ -189,6 +186,7 @@ def log_metric(
         db_health.calories = calories_burned
         
     db_health.updated_at = datetime.now(timezone.utc)
+    crud.cleanup_old_user_data(db, user.id)
     db.commit()
     db.refresh(db_health)
     
@@ -206,11 +204,11 @@ def log_metric(
 def get_metric_graph(
     email: str = Path(..., description="The registered user's email address"),
     metric: str = Query(..., description="Health metric type: 'steps', 'calories', 'sleep', 'water', 'workouts', or 'heart_rate'"),
-    period: str = Query("days", description="Aggregation period: 'days' (last 7 days daily), 'weeks' (last 4 weeks weekly), 'month' (last 3 months monthly), or 'years' (last 5 years yearly)"),
+    period: str = Query("days", description="Aggregation period: 'days' (last 7 days daily), 'weeks' (last 4 weeks weekly), or 'month' (last 3 months monthly)"),
     db: Session = Depends(get_db)
 ):
     """
-    Retrieves health metric graph data for a user based on the period: 'days', 'weeks', 'month', or 'years'.
+    Retrieves health metric graph data for a user based on the period: 'days', 'weeks', or 'month'.
     Includes aggregated data, averages, totals, and personalized health feedback.
     """
     user = crud.get_user_by_email(db, email)
@@ -252,12 +250,10 @@ def get_metric_graph(
         period_clean = "weeks"
     elif period_clean in ["month", "months", "3_months"]:
         period_clean = "month"
-    elif period_clean in ["years", "year"]:
-        period_clean = "years"
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid period. Choose from 'days', 'weeks', 'month', or 'years'."
+            detail="Invalid period. Choose from 'days', 'weeks', or 'month'."
         )
         
     today = date.today()
@@ -267,7 +263,7 @@ def get_metric_graph(
         start_date = today - timedelta(days=6)
     elif period_clean == "weeks":
         start_date = today - timedelta(days=27)
-    elif period_clean == "month":
+    else:
         # First day of the month 2 months ago (total 3 months: current, current-1, current-2)
         current_year = today.year
         current_month = today.month
@@ -277,8 +273,6 @@ def get_metric_graph(
             target_month += 12
             target_year -= 1
         start_date = date(target_year, target_month, 1)
-    else:
-        start_date = today - timedelta(days=365 * 5)
         
     health_logs = db.query(models.HealthData).filter(
         models.HealthData.user_id == user.id,
@@ -365,31 +359,7 @@ def get_metric_graph(
                     val = sum(vals)
             data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1)))
             
-    else:
-        # Last 5 years, yearly aggregated data points
-        current_year = today.year
-        yearly_labels = [str(current_year - i) for i in range(5)]
-        yearly_labels.reverse()
-        
-        data_dict = {label: [] for label in yearly_labels}
-        for r in health_logs:
-            label = r.date.strftime("%Y")
-            if label in data_dict:
-                val = getattr(r, col_name)
-                if val is not None:
-                    data_dict[label].append(float(val))
-                    
-        data_points = []
-        for label in yearly_labels:
-            vals = data_dict[label]
-            if not vals:
-                val = default_val
-            else:
-                if metric_clean in ["sleep", "sleep_duration_hours", "heart_rate", "heart_rate_bpm"]:
-                    val = sum(vals) / len(vals)
-                else:
-                    val = sum(vals)
-            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1)))
+
             
     # Calculate average and total
     average = sum(dp.value for dp in data_points) / len(data_points) if data_points else 0.0

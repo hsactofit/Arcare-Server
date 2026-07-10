@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
@@ -47,14 +47,14 @@ client = TestClient(app)
 # Test payload definitions
 signup_payload = {
     "email": "testuser@arcar.com",
-    "password": "securepassword123",
+    "password": "Test@123",
     "name": "Test User",
     "provider": "email"
 }
 
 login_payload = {
     "email": "testuser@arcar.com",
-    "password": "securepassword123"
+    "password": "Test@123"
 }
 
 onboarding_payload = {
@@ -273,7 +273,7 @@ def run_tests():
 
     print("\n--- 17. Testing Password Reset and Login ---")
     # Reset with new password
-    response = client.post("/api/auth/reset-password", json={"reset_token": reset_token, "new_password": "newsecurepassword987"})
+    response = client.post("/api/auth/reset-password", json={"reset_token": reset_token, "new_password": "NewTest@123"})
     print(f"Reset Password Status: {response.status_code}")
     assert response.status_code == 200
 
@@ -284,7 +284,7 @@ def run_tests():
 
     # Try new login (should succeed)
     new_login_payload = login_payload.copy()
-    new_login_payload["password"] = "newsecurepassword987"
+    new_login_payload["password"] = "NewTest@123"
     response = client.post("/api/auth/login", json=new_login_payload)
     print(f"Login with new password status: {response.status_code}")
     assert response.status_code == 200
@@ -502,15 +502,59 @@ def run_tests():
     assert graph_data["average"] > 0
     assert graph_data["total"] > 0  # sleep now has total duration calculated
 
-    # Test period: years
+    # Test period: years (should return 400 Bad Request now)
     response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=heart_rate&period=years")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid period. Choose from 'days', 'weeks', or 'month'."
+
+    print("\n--- 28. Testing Data Retention Cleanup (Only storing last 3 months) ---")
+    from app.database import SessionLocal
+    import app.models
+    
+    db = SessionLocal()
+    user = db.query(app.models.User).filter(app.models.User.email == signup_payload["email"]).first()
+    
+    # 1. Test HealthData cleanup
+    old_date = date.today() - timedelta(days=120)
+    db_old_health = app.models.HealthData(user_id=user.id, date=old_date, steps=5000)
+    db.add(db_old_health)
+    db.commit()
+    
+    # Verify it exists
+    assert db.query(app.models.HealthData).filter(app.models.HealthData.user_id == user.id, app.models.HealthData.date == old_date).first() is not None
+    
+    # Trigger cleanup by logging a metric
+    today_payload = {
+        "metric": "steps",
+        "value": 10000,
+        "date": date.today().isoformat()
+    }
+    response = client.post(f"/api/health/metric/{signup_payload['email']}", json=today_payload)
     assert response.status_code == 200
-    graph_data = response.json()
-    assert graph_data["metric"] == "heart_rate"
-    assert graph_data["period"] == "years"
-    assert len(graph_data["data"]) == 5
-    assert graph_data["average"] > 0
-    assert "resting heart rate" in graph_data["feedback"]
+    
+    # Verify it was cleaned up
+    assert db.query(app.models.HealthData).filter(app.models.HealthData.user_id == user.id, app.models.HealthData.date == old_date).first() is None
+    
+    # 2. Test WaterLog cleanup
+    old_datetime = datetime.combine(date.today() - timedelta(days=120), datetime.min.time())
+    db_old_water = app.models.WaterLog(user_id=user.id, amount=250, timestamp=old_datetime)
+    db.add(db_old_water)
+    db.commit()
+    
+    # Verify it exists
+    assert db.query(app.models.WaterLog).filter(app.models.WaterLog.user_id == user.id, app.models.WaterLog.timestamp == old_datetime).first() is not None
+    
+    # Trigger cleanup by logging water
+    water_payload = {
+        "amount": 500
+    }
+    response = client.post(f"/api/water/log/{signup_payload['email']}", json=water_payload)
+    assert response.status_code == 200
+    
+    # Verify it was cleaned up
+    assert db.query(app.models.WaterLog).filter(app.models.WaterLog.user_id == user.id, app.models.WaterLog.timestamp == old_datetime).first() is None
+    
+    db.close()
 
     print("\nALL AUTHENTICATION, OTP, HEALTH, DASHBOARD, HYDRATION AND GRAPH TESTS PASSED SUCCESSFULLY!")
 

@@ -7,6 +7,31 @@ from app.security import hash_password, verify_password
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
 
+def cleanup_old_user_data(db: Session, user_id: int):
+    """
+    Deletes HealthData and WaterLog records older than 3 months (first day of the month 2 months ago).
+    """
+    today = date.today()
+    current_year = today.year
+    current_month = today.month
+    target_month = current_month - 2
+    target_year = current_year
+    while target_month <= 0:
+        target_month += 12
+        target_year -= 1
+    cutoff_date = date(target_year, target_month, 1)
+    cutoff_datetime = datetime.combine(cutoff_date, datetime.min.time())
+
+    db.query(models.HealthData).filter(
+        models.HealthData.user_id == user_id,
+        models.HealthData.date < cutoff_date
+    ).delete()
+
+    db.query(models.WaterLog).filter(
+        models.WaterLog.user_id == user_id,
+        models.WaterLog.timestamp < cutoff_datetime
+    ).delete()
+
 def get_full_onboarding_data(db: Session, email: str):
     user = get_user_by_email(db, email)
     if not user:
@@ -150,6 +175,7 @@ def save_user_onboarding(db: Session, data: schemas.OnboardingSubmission):
         )
         db.add(db_health)
 
+    cleanup_old_user_data(db, db_user.id)
     db.commit()
     db.refresh(db_user)
     return db_user
@@ -197,6 +223,7 @@ def sync_user_health_data(db: Session, email: str, sync_list: List[schemas.Daily
         db_health.updated_at = datetime.now(timezone.utc)
         updated_records.append(db_health)
 
+    cleanup_old_user_data(db, user.id)
     db.commit()
     for r in updated_records:
         db.refresh(r)
@@ -382,6 +409,7 @@ def create_water_log(db: Session, email: str, log_data: schemas.WaterLogCreate):
         db_health.water_intake_ml += log_data.amount
         db_health.updated_at = datetime.now(timezone.utc)
         
+    cleanup_old_user_data(db, user.id)
     db.commit()
     db.refresh(db_log)
     return db_log
@@ -438,6 +466,7 @@ def update_water_log(db: Session, db_log: models.WaterLog, log_data: schemas.Wat
             db_health_new.water_intake_ml += log_data.amount
             db_health_new.updated_at = datetime.now(timezone.utc)
             
+    cleanup_old_user_data(db, db_log.user_id)
     db.commit()
     db.refresh(db_log)
     return db_log

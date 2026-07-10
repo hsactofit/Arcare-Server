@@ -85,7 +85,7 @@ class MetricLogResponse(BaseModel):
     health_data: DailyHealthDataResponse
 
 class MetricGraphDataPoint(BaseModel):
-    label: str = Field(..., description="Date label (e.g. YYYY-MM-DD, YYYY-MM, or YYYY)")
+    label: str = Field(..., description="Date label (e.g. YYYY-MM-DD or YYYY-MM)")
     value: float = Field(..., description="Metric value or aggregated value")
 
 class MetricGraphResponse(BaseModel):

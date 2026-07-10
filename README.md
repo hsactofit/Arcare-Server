@@ -71,7 +71,7 @@ Registers a new local user with email and password, hashing their credentials se
 ```json
 {
   "email": "testuser@arcar.com",
-  "password": "securepassword123",
+  "password": "Test@123",
   "name": "Test User"
 }
 ```
@@ -101,7 +101,7 @@ Authenticates local credentials, returning JWT keys and complete user data (incl
 ```json
 {
   "email": "testuser@arcar.com",
-  "password": "securepassword123"
+  "password": "Test@123"
 }
 ```
 * **Response (200 OK):**
