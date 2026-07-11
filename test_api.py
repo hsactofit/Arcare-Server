@@ -482,6 +482,11 @@ def run_tests():
     assert graph_data["calories_total"] == round(graph_data["total"] * 0.0006125 * 75.0, 1)
     assert graph_data["calories_average"] == round(graph_data["average"] * 0.0006125 * 75.0, 1)
 
+    # Assert each data point has calories_burned calculated
+    for dp in graph_data["data"]:
+        assert "calories_burned" in dp
+        assert dp["calories_burned"] == round(dp["value"] * 0.0006125 * 75.0, 1)
+
     # Test period: weeks
     response = client.get(f"/api/health/graph/{signup_payload['email']}?metric=steps&period=weeks")
     assert response.status_code == 200

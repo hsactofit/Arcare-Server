@@ -292,7 +292,12 @@ def get_metric_graph(
                     data_dict[date_str] = float(val)
         
         sorted_data = sorted(data_dict.items())
-        data_points = [schemas.MetricGraphDataPoint(label=k, value=v) for k, v in sorted_data]
+        data_points = []
+        for k, v in sorted_data:
+            c_burned = None
+            if metric_clean == "steps":
+                c_burned = round(v * 0.0006125 * weight, 1)
+            data_points.append(schemas.MetricGraphDataPoint(label=k, value=v, calories_burned=c_burned))
         
     elif period_clean == "weeks":
         # Last 4 weeks (28 days), weekly aggregated data points
@@ -323,7 +328,10 @@ def get_metric_graph(
                     val = sum(vals) / len(vals)
                 else:
                     val = sum(vals)
-            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1)))
+            c_burned = None
+            if metric_clean == "steps":
+                c_burned = round(val * 0.0006125 * weight, 1)
+            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1), calories_burned=c_burned))
             
     elif period_clean == "month":
         # Last 3 months, monthly aggregated data points
@@ -357,7 +365,10 @@ def get_metric_graph(
                     val = sum(vals) / len(vals)
                 else:
                     val = sum(vals)
-            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1)))
+            c_burned = None
+            if metric_clean == "steps":
+                c_burned = round(val * 0.0006125 * weight, 1)
+            data_points.append(schemas.MetricGraphDataPoint(label=label, value=round(val, 1), calories_burned=c_burned))
             
 
             

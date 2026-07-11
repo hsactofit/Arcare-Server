@@ -87,6 +87,7 @@ class MetricLogResponse(BaseModel):
 class MetricGraphDataPoint(BaseModel):
     label: str = Field(..., description="Date label (e.g. YYYY-MM-DD or YYYY-MM)")
     value: float = Field(..., description="Metric value or aggregated value")
+    calories_burned: Optional[float] = Field(None, description="Calculated calories burned if the metric is 'steps'")
 
 class MetricGraphResponse(BaseModel):
     metric: str
