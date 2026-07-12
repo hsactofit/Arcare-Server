@@ -238,6 +238,262 @@ class WaterGraphResponse(BaseModel):
     data: List[WaterGraphDataPoint]
 
 
+class NutritionLogResponse(BaseModel):
+    id: int
+    food_name: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NutritionLogCreate(BaseModel):
+    food_name: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+    timestamp: Optional[datetime] = None
+
+
+class NutritionHistoryResponse(BaseModel):
+    calories_today: float
+    protein_today: float
+    fat_today: float
+    carbs_today: float
+    logs: List[NutritionLogResponse]
+
+
+class NutritionLogSubmitResponse(BaseModel):
+    id: int
+    message: str = "Nutrition intake logged successfully"
+    food_name: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NutritionGraphDataPoint(BaseModel):
+    label: str
+    calories: float
+    protein: float
+    fat: float
+    carbs: float
+
+
+class NutritionGraphResponse(BaseModel):
+    period: str
+    data: List[NutritionGraphDataPoint]
+
+
+# --- CHALLENGES SCHEMAS ---
+
+class ChallengeBase(BaseModel):
+    title: str
+    shortDescription: Optional[str] = None
+    description: Optional[str] = None
+    infoText: Optional[str] = None
+    category: str
+    challengeType: str
+    difficulty: str
+    targetValue: float
+    unit: str
+    rewardPoints: int = 0
+    rewardBadge: Optional[str] = None
+    bannerImage: Optional[str] = None
+    startDate: datetime
+    endDate: datetime
+    status: str = "ACTIVE"
+
+class ChallengeCreate(ChallengeBase):
+    pass
+
+class DailyHistoryItem(BaseModel):
+    date: str
+    status: str  # "completed", "missed", "in_progress"
+    progress: float
+    target: float
+
+class ChallengeResponse(ChallengeBase):
+    id: str
+    participantsCount: int
+    createdAt: datetime
+    updatedAt: datetime
+    joined: Optional[bool] = False
+    completed: Optional[bool] = False
+    currentProgress: Optional[float] = 0.0
+    completedToday: Optional[bool] = False
+    doneToday: Optional[bool] = False
+    dailyHistory: Optional[List[DailyHistoryItem]] = []
+
+    class Config:
+        from_attributes = True
+
+class UserChallengeResponse(BaseModel):
+    id: str
+    userId: int
+    challengeId: str
+    joinedAt: datetime
+    currentProgress: float
+    progressPercentage: float
+    completed: bool
+    rewardClaimed: bool
+    completedAt: Optional[datetime] = None
+    completedToday: Optional[bool] = False
+    doneToday: Optional[bool] = False
+    dailyHistory: Optional[List[DailyHistoryItem]] = []
+
+    class Config:
+        from_attributes = True
+
+class ProgressSubmitRequest(BaseModel):
+    progress: float
+
+class RewardClaimResponse(BaseModel):
+    message: str = "Reward claimed successfully"
+    rewardPoints: int
+    rewardBadge: Optional[str] = None
+    rewardClaimed: bool
+
+class LeaderboardUser(BaseModel):
+    rank: int
+    userId: str
+    name: str
+    progress: float
+
+class CurrentUserLeaderboard(BaseModel):
+    rank: int
+    progress: float
+    percentile: float
+
+class LeaderboardResponse(BaseModel):
+    challengeId: str
+    leaderboardType: str
+    totalParticipants: int
+    currentUser: Optional[CurrentUserLeaderboard] = None
+    leaders: List[LeaderboardUser]
+
+
+# --- GYM CHECK-IN SCHEMAS ---
+
+class GymCheckInRequest(BaseModel):
+    qr_data: str = Field(..., description="The scanned QR code content")
+    gym_name: str = Field(..., description="Name of the gym")
+
+class GymExerciseSetInput(BaseModel):
+    name: str = Field(..., description="Name of the exercise")
+    sets: int = Field(..., ge=1, description="Number of sets performed")
+
+class GymCheckOutRequest(BaseModel):
+    exercises: List[GymExerciseSetInput] = Field(..., description="List of exercises and sets performed during the session")
+
+class GymCheckInResponse(BaseModel):
+    id: str
+    userId: int
+    qr_data: str
+    gym_name: str
+    check_in_time: datetime
+    check_out_time: Optional[datetime] = None
+    exercises_done: Optional[str] = None
+    calories_burned: float = 0.0
+    message: str
+
+    class Config:
+        from_attributes = True
+
+class ExerciseResponse(BaseModel):
+    id: int
+    name: str
+    category: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+# --- PROGRESS TRENDS SCHEMAS ---
+
+class TrendTargetCompletion(BaseModel):
+    steps: str  # "yes" / "no"
+    calories: str  # "yes" / "no"
+    sleep: str  # "yes" / "no"
+    hydration: str  # "yes" / "no"
+
+class TrendHistoryItem(BaseModel):
+    date: str
+    steps: float
+    calories: float
+    sleep: float
+    water: float
+    targets_completed: TrendTargetCompletion
+
+class TrendGraphDataPoint(BaseModel):
+    label: str
+    steps: float
+    calories: float
+    sleep: float
+    water: float
+
+class TrendAverages(BaseModel):
+    steps: float
+    calories: float
+    sleep: float
+    hydration: float
+
+class TrendTargets(BaseModel):
+    steps: float
+    calories: float
+    sleep: float
+    hydration: float
+
+class ProgressTrendsResponse(BaseModel):
+    period: str
+    averages: TrendAverages
+    targets: TrendTargets
+    history: List[TrendHistoryItem]
+    graph_data: List[TrendGraphDataPoint]
+    page: int
+    limit: int
+    total_items: int
+    total_pages: int
+
+
+# Edit Profile request schemas
+class ProfileUpdateSchema(BaseModel):
+    dob: Optional[date] = None
+    gender: Optional[str] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+
+class NotificationPermissionUpdateSchema(BaseModel):
+    ai_tips: Optional[bool] = None
+    rewards: Optional[bool] = None
+    daily_reminder: Optional[bool] = None
+    sleep_reminder: Optional[bool] = None
+    activity_reminder: Optional[bool] = None
+    challenge_updates: Optional[bool] = None
+    hydration_reminder: Optional[bool] = None
+
+class PermissionsUpdateSchema(BaseModel):
+    notifications: Optional[NotificationPermissionUpdateSchema] = None
+    health_connect_connected: Optional[bool] = None
+
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    profile: Optional[ProfileUpdateSchema] = None
+    goals: Optional[List[str]] = None
+    permissions: Optional[PermissionsUpdateSchema] = None
+
+
+
 
 
 

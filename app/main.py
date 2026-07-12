@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.routers import onboarding, health, dashboard, auth, water
+from app.routers import onboarding, health, dashboard, auth, water, challenges, nutrition
 
 # Automatically create tables in SQLite on start
 Base.metadata.create_all(bind=engine)
@@ -28,6 +28,8 @@ app.include_router(onboarding.router, prefix=settings.API_PREFIX)
 app.include_router(health.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(water.router, prefix=settings.API_PREFIX)
+app.include_router(nutrition.router, prefix=settings.API_PREFIX)
+app.include_router(challenges.router, prefix=settings.API_PREFIX)
 
 
 

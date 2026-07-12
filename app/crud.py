@@ -32,6 +32,11 @@ def cleanup_old_user_data(db: Session, user_id: int):
         models.WaterLog.timestamp < cutoff_datetime
     ).delete()
 
+    db.query(models.NutritionLog).filter(
+        models.NutritionLog.user_id == user_id,
+        models.NutritionLog.timestamp < cutoff_datetime
+    ).delete()
+
 def get_full_onboarding_data(db: Session, email: str):
     user = get_user_by_email(db, email)
     if not user:
@@ -490,6 +495,120 @@ def delete_water_log(db: Session, db_log: models.WaterLog):
         db_health.updated_at = datetime.now(timezone.utc)
         
     db.commit()
+
+
+def update_user_profile(db: Session, user: models.User, data: schemas.ProfileUpdateRequest) -> models.User:
+    # 1. Update user fields
+    if data.name is not None:
+        user.name = data.name
+
+    # 2. Update Profile fields
+    if data.profile is not None:
+        if not user.profile:
+            user.profile = models.Profile(user_id=user.id)
+            db.add(user.profile)
+        if data.profile.dob is not None:
+            user.profile.dob = data.profile.dob
+        if data.profile.gender is not None:
+            user.profile.gender = data.profile.gender
+        if data.profile.height is not None:
+            user.profile.height = data.profile.height
+        if data.profile.weight is not None:
+            user.profile.weight = data.profile.weight
+
+    # 3. Update Goals (overwrite list if goals is provided)
+    if data.goals is not None:
+        db.query(models.Goal).filter(models.Goal.user_id == user.id).delete()
+        for goal_name in data.goals:
+            db_goal = models.Goal(user_id=user.id, goal_name=goal_name)
+            db.add(db_goal)
+
+    # 4. Update Permissions
+    if data.permissions is not None:
+        # Notifications
+        if data.permissions.notifications is not None:
+            if not user.notification_permission:
+                user.notification_permission = models.NotificationPermission(user_id=user.id)
+                db.add(user.notification_permission)
+            notif = data.permissions.notifications
+            if notif.ai_tips is not None:
+                user.notification_permission.ai_tips = notif.ai_tips
+            if notif.rewards is not None:
+                user.notification_permission.rewards = notif.rewards
+            if notif.daily_reminder is not None:
+                user.notification_permission.daily_reminder = notif.daily_reminder
+            if notif.sleep_reminder is not None:
+                user.notification_permission.sleep_reminder = notif.sleep_reminder
+            if notif.activity_reminder is not None:
+                user.notification_permission.activity_reminder = notif.activity_reminder
+            if notif.challenge_updates is not None:
+                user.notification_permission.challenge_updates = notif.challenge_updates
+            if notif.hydration_reminder is not None:
+                user.notification_permission.hydration_reminder = notif.hydration_reminder
+        # Health Connect
+        if data.permissions.health_connect_connected is not None:
+            if not user.health_permission:
+                user.health_permission = models.HealthPermission(user_id=user.id)
+                db.add(user.health_permission)
+            user.health_permission.health_connect_connected = data.permissions.health_connect_connected
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def get_user_nutrition_logs(db: Session, email: str, limit: int = 7):
+    user = get_user_by_email(db, email)
+    if not user:
+        return []
+    return db.query(models.NutritionLog).filter(
+        models.NutritionLog.user_id == user.id
+    ).order_by(models.NutritionLog.timestamp.desc()).limit(limit).all()
+
+
+def create_nutrition_log(db: Session, email: str, log_data: schemas.NutritionLogCreate):
+    user = get_user_by_email(db, email)
+    if not user:
+        return None
+    db_log = models.NutritionLog(
+        user_id=user.id,
+        food_name=log_data.food_name,
+        calories=log_data.calories,
+        protein=log_data.protein,
+        fat=log_data.fat,
+        carbs=log_data.carbs,
+        timestamp=log_data.timestamp or datetime.now(timezone.utc)
+    )
+    db.add(db_log)
+    cleanup_old_user_data(db, user.id)
+    db.commit()
+    db.refresh(db_log)
+    return db_log
+
+
+def get_nutrition_log_by_id(db: Session, log_id: int):
+    return db.query(models.NutritionLog).filter(models.NutritionLog.id == log_id).first()
+
+
+def update_nutrition_log(db: Session, db_log: models.NutritionLog, log_data: schemas.NutritionLogCreate):
+    db_log.food_name = log_data.food_name
+    db_log.calories = log_data.calories
+    db_log.protein = log_data.protein
+    db_log.fat = log_data.fat
+    db_log.carbs = log_data.carbs
+    if log_data.timestamp:
+        db_log.timestamp = log_data.timestamp
+    
+    cleanup_old_user_data(db, db_log.user_id)
+    db.commit()
+    db.refresh(db_log)
+    return db_log
+
+
+def delete_nutrition_log(db: Session, db_log: models.NutritionLog):
+    db.delete(db_log)
+    db.commit()
+
 
 
 

@@ -440,7 +440,7 @@ def run_tests():
     metric_payload = {
         "metric": "steps",
         "value": 10000,
-        "date": date.today().isoformat()
+        "date": (date.today() - timedelta(days=1)).isoformat()
     }
     response = client.post(f"/api/health/metric/{signup_payload['email']}", json=metric_payload)
     assert response.status_code == 200
@@ -458,7 +458,7 @@ def run_tests():
     sleep_payload = {
         "metric": "sleep",
         "value": 8.5,
-        "date": date.today().isoformat()
+        "date": (date.today() - timedelta(days=1)).isoformat()
     }
     response = client.post(f"/api/health/metric/{signup_payload['email']}", json=sleep_payload)
     assert response.status_code == 200
@@ -532,7 +532,7 @@ def run_tests():
     today_payload = {
         "metric": "steps",
         "value": 10000,
-        "date": date.today().isoformat()
+        "date": (date.today() - timedelta(days=1)).isoformat()
     }
     response = client.post(f"/api/health/metric/{signup_payload['email']}", json=today_payload)
     assert response.status_code == 200
@@ -559,9 +559,375 @@ def run_tests():
     # Verify it was cleaned up
     assert db.query(app.models.WaterLog).filter(app.models.WaterLog.user_id == user.id, app.models.WaterLog.timestamp == old_datetime).first() is None
     
+    # 29. Testing Challenges & Leaderboards
+    print("\n--- 29. Testing Challenges & Leaderboards ---")
+    response = client.post("/api/auth/login", json={
+        "email": signup_payload["email"],
+        "password": "NewTest@123"
+    })
+    assert response.status_code == 200
+    token = response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Test GET /challenges (should seed challenges if empty)
+    response = client.get("/api/challenges", headers=headers)
+    assert response.status_code == 200
+    challenges = response.json()
+    assert len(challenges) >= 5
+    assert challenges[0]["id"] == "challenge_001"
+    assert challenges[0]["joined"] is False
+    assert challenges[0]["infoText"] is not None
+    assert "5,000 steps" in challenges[0]["infoText"]
+
+    # Test GET /challenges/{id}
+    response = client.get("/api/challenges/challenge_001", headers=headers)
+    assert response.status_code == 200
+    challenge = response.json()
+    assert challenge["title"] == "Walk 5,000 Steps"
+    assert challenge["joined"] is False
+    assert challenge["infoText"] is not None
+
+    # Test POST /challenges/{id}/join (challenge_001 is auto-completed because of onboarding's 6200 steps!)
+    response = client.post("/api/challenges/challenge_001/join", headers=headers)
+    assert response.status_code == 200
+    user_challenge = response.json()
+    print("USER CHALLENGE JOINED:", user_challenge)
+    assert user_challenge["challengeId"] == "challenge_001"
+    assert user_challenge["completed"] is True
+    assert user_challenge["currentProgress"] == 6200.0
+    assert user_challenge["completedToday"] is True
+    assert user_challenge["doneToday"] is True
+    assert len(user_challenge["dailyHistory"]) >= 1
+    assert "status" in user_challenge["dailyHistory"][0]
+    assert user_challenge["dailyHistory"][0]["target"] == 5000.0
+
+    # Verify joined in GET /challenges
+    response = client.get("/api/challenges", headers=headers)
+    assert response.status_code == 200
+    challenges = response.json()
+    assert challenges[0]["joined"] is True
+    assert challenges[0]["infoText"] is None
+    assert challenges[0]["completedToday"] is True
+    assert challenges[0]["doneToday"] is True
+    assert len(challenges[0]["dailyHistory"]) >= 1
+
+    # Test GET /users/me/challenges/completed
+    response = client.get("/api/users/me/challenges/completed", headers=headers)
+    assert response.status_code == 200
+    completed_challenges = response.json()
+    assert len(completed_challenges) == 1
+    assert completed_challenges[0]["id"] == "challenge_001"
+    assert completed_challenges[0]["completedToday"] is True
+    assert completed_challenges[0]["doneToday"] is True
+    assert len(completed_challenges[0]["dailyHistory"]) >= 1
+
+    # Test GET /challenges/{challengeId}/leaderboard
+    response = client.get("/api/challenges/challenge_001/leaderboard", headers=headers)
+    assert response.status_code == 200
+    leaderboard = response.json()
+    assert leaderboard["challengeId"] == "challenge_001"
+    assert leaderboard["totalParticipants"] == 1
+    assert leaderboard["currentUser"]["rank"] == 1
+    assert leaderboard["currentUser"]["progress"] == 6200.0
+
+    # Test POST /challenges/{id}/claim-reward
+    response = client.post("/api/challenges/challenge_001/claim-reward", headers=headers)
+    assert response.status_code == 200
+    reward_res = response.json()
+    assert reward_res["rewardClaimed"] is True
+    assert reward_res["rewardPoints"] == 50
+
+    # Test POST /challenges/{id}/leave
+    response = client.post("/api/challenges/challenge_001/leave", headers=headers)
+    assert response.status_code == 200
+
+    # Test auto-updating step challenge progress from logged metrics
+    print("\n--- Testing Step Challenge Auto-Sync Progress ---")
+    response = client.post("/api/challenges/challenge_005/join", headers=headers)
+    assert response.status_code == 200
+    uc_005 = response.json()
+    assert uc_005["challengeId"] == "challenge_005"
+    assert uc_005["currentProgress"] == 6200.0
+    assert uc_005["completed"] is False
+    assert uc_005["completedToday"] is False
+    assert uc_005["doneToday"] is False
+
+    # Log 15000 steps for today (overwrites the 6200 steps today, making total steps today = 15000, and overall challenge total = 10000 + 15000 = 25000)
+    metric_payload_today = {
+        "metric": "steps",
+        "value": 15000,
+        "date": date.today().isoformat()
+    }
+    response = client.post(f"/api/health/metric/{signup_payload['email']}", json=metric_payload_today, headers=headers)
+    assert response.status_code == 200
+
+    # Retrieve challenges list (triggers sync)
+    response = client.get("/api/challenges", headers=headers)
+    assert response.status_code == 200
+    challenges_after_sync = response.json()
+    challenge_005_data = next(c for c in challenges_after_sync if c["id"] == "challenge_005")
+    assert challenge_005_data["joined"] is True
+    assert challenge_005_data["currentProgress"] == 15000.0
+    print("Steps metric update correctly auto-synced to active Challenge progress!")
+
+    # Clean up
+    client.post("/api/challenges/challenge_005/leave", headers=headers)
+
+
+    # --- 30. Testing Gym Check-in & Exercises API ---
+    print("\n--- 30. Testing Gym Check-in & Exercises API ---")
+    
+    # Get Exercises List
+    response = client.get("/api/gym/exercises", headers=headers)
+    assert response.status_code == 200
+    exercises = response.json()
+    assert len(exercises) > 0
+    assert any(e["name"] == "Bench Press" for e in exercises)
+    print(f"Exercises available: {[e['name'] for e in exercises[:5]]}...")
+
+    # Join Gym Check-in Challenge
+    response = client.post("/api/challenges/challenge_006/join", headers=headers)
+    assert response.status_code == 200
+    uc_gym = response.json()
+    assert uc_gym["challengeId"] == "challenge_006"
+    assert uc_gym["currentProgress"] == 0.0
+
+    # Perform Gym Check-in
+    checkin_payload = {
+        "qr_data": "gym_qr_branch_south_123",
+        "gym_name": "Gold's Gym South Branch"
+    }
+    response = client.post("/api/gym/check-in", json=checkin_payload, headers=headers)
+    assert response.status_code == 200
+    checkin_res = response.json()
+    assert checkin_res["gym_name"] == "Gold's Gym South Branch"
+    assert checkin_res["check_out_time"] is None
+    
+    # Try checking in again (should return active session)
+    response = client.post("/api/gym/check-in", json=checkin_payload, headers=headers)
+    assert response.status_code == 200
+    assert "Already checked in" in response.json()["message"]
+
+    # Perform Gym Check-out with exercises list and sets
+    checkout_payload = {
+        "exercises": [
+            {"name": "Bench Press", "sets": 4},
+            {"name": "Squats", "sets": 3},
+            {"name": "Treadmill Running", "sets": 2}
+        ]
+    }
+    response = client.post("/api/gym/check-out", json=checkout_payload, headers=headers)
+    assert response.status_code == 200
+    checkout_res = response.json()
+    assert checkout_res["check_out_time"] is not None
+    assert checkout_res["calories_burned"] == 134.0
+    assert "Bench Press" in checkout_res["exercises_done"]
+    assert "sets" in checkout_res["exercises_done"]
+
+    # Verify that the Gym Check-in Challenge progress automatically synced/updated!
+    response = client.get("/api/challenges/challenge_006", headers=headers)
+    assert response.status_code == 200
+    challenge_gym = response.json()
+    assert challenge_gym["joined"] is True
+    assert challenge_gym["currentProgress"] == 1.0
+    assert challenge_gym["completedToday"] is False
+    assert challenge_gym["doneToday"] is False
+    print("Gym Challenge progress automatically updated to 1.0 check-ins!")
+
+    # Perform Gym Check-in again (should extend/reopen the session since it is on the same day!)
+    response = client.post("/api/gym/check-in", json=checkin_payload, headers=headers)
+    assert response.status_code == 200
+    extend_res = response.json()
+    assert extend_res["id"] == checkout_res["id"]
+    assert extend_res["check_out_time"] is None
+    assert "extended" in extend_res["message"]
+    print("Re-checked in to extend session successfully!")
+    
+    # Check out again to close it
+    response = client.post("/api/gym/check-out", json=checkout_payload, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["check_out_time"] is not None
+
+    # Test GET /api/profile
+    print("\n--- Testing GET /api/profile ---")
+    response = client.get("/api/profile", headers=headers)
+    assert response.status_code == 200
+    profile_details = response.json()
+    assert profile_details["email"] == signup_payload["email"]
+    assert profile_details["name"] == signup_payload["name"]
+    assert "profile" in profile_details
+    assert profile_details["profile"]["height"] == 175.0
+    assert profile_details["profile"]["weight"] == 75.0
+    print("GET /api/profile returned all user details successfully!")
+
+    # Test PUT /api/profile
+    print("\n--- Testing PUT /api/profile ---")
+    update_payload = {
+        "name": "Updated Name",
+        "profile": {
+            "weight": 80.0,
+            "height": 180.0
+        },
+        "goals": ["Lose Weight", "Stay Active", "Manage Stress"],
+        "permissions": {
+            "notifications": {
+                "sleep_reminder": True
+            }
+        }
+    }
+    response = client.put("/api/profile", json=update_payload, headers=headers)
+    assert response.status_code == 200
+    updated_details = response.json()
+    assert updated_details["name"] == "Updated Name"
+    assert updated_details["profile"]["weight"] == 80.0
+    assert updated_details["profile"]["height"] == 180.0
+    assert "Manage Stress" in updated_details["goals"]
+    assert updated_details["permissions"]["notifications"]["sleep_reminder"] is True
+    print("PUT /api/profile successfully updated user profile!")
+
+    # --- 31. Testing Health Progress Trends API ---
+    print("\n--- 31. Testing Health Progress Trends API ---")
+    
+    # 1. Test GET /api/health/trends/{email} with daily (default)
+    response = client.get(f"/api/health/trends/{signup_payload['email']}", headers=headers)
+    assert response.status_code == 200
+    trends_daily = response.json()
+    assert trends_daily["period"] == "daily"
+    assert "averages" in trends_daily
+    assert "targets" in trends_daily
+    assert "history" in trends_daily
+    assert "graph_data" in trends_daily
+    assert len(trends_daily["history"]) == 7
+    assert len(trends_daily["graph_data"]) == 7
+    # Verify that first entry of history has expected metrics
+    day0 = trends_daily["history"][0]
+    assert "date" in day0
+    assert "steps" in day0
+    assert "calories" in day0
+    assert "sleep" in day0
+    assert "water" in day0
+    assert "targets_completed" in day0
+    assert day0["targets_completed"]["steps"] in ("yes", "no")
+    assert day0["targets_completed"]["hydration"] in ("yes", "no")
+
+    # 2. Test GET /api/health/trends/{email} with weekly (with pagination checks)
+    response = client.get(f"/api/health/trends/{signup_payload['email']}?period=weekly&page=1&limit=10", headers=headers)
+    assert response.status_code == 200
+    trends_weekly = response.json()
+    assert trends_weekly["period"] == "weekly"
+    assert trends_weekly["page"] == 1
+    assert trends_weekly["limit"] == 10
+    assert trends_weekly["total_items"] == 28
+    assert trends_weekly["total_pages"] == 3
+    assert len(trends_weekly["history"]) == 10
+    assert len(trends_weekly["graph_data"]) == 4
+
+    # Test GET weekly with a limit covering all items
+    response = client.get(f"/api/health/trends/{signup_payload['email']}?period=weekly&limit=100", headers=headers)
+    assert response.status_code == 200
+    assert len(response.json()["history"]) == 28
+
+    # 3. Test GET /api/health/trends/{email} with monthly (with pagination checks)
+    response = client.get(f"/api/health/trends/{signup_payload['email']}?period=monthly&page=2&limit=20", headers=headers)
+    assert response.status_code == 200
+    trends_monthly = response.json()
+    assert trends_monthly["period"] == "monthly"
+    assert trends_monthly["page"] == 2
+    assert trends_monthly["limit"] == 20
+    assert trends_monthly["total_items"] == 90
+    assert trends_monthly["total_pages"] == 5
+    assert len(trends_monthly["history"]) == 20
+    assert len(trends_monthly["graph_data"]) == 3
+
+    # 4. Test GET /api/health/trends/{email} with invalid period
+    response = client.get(f"/api/health/trends/{signup_payload['email']}?period=yearly", headers=headers)
+    assert response.status_code == 400
+
+    print("Health Progress Trends API tests passed successfully!")
+
+    # --- 32. Testing Nutrition Intake API ---
+    print("\n--- 32. Testing Nutrition Intake API ---")
+    
+    # Log nutrition intake
+    nutrition_payload = {
+        "food_name": "Chicken Breast and Rice",
+        "calories": 650.5,
+        "protein": 45.0,
+        "fat": 12.5,
+        "carbs": 70.0
+    }
+    response = client.post(f"/api/nutrition/log/{signup_payload['email']}", json=nutrition_payload, headers=headers)
+    assert response.status_code == 200
+    log_data = response.json()
+    assert log_data["food_name"] == "Chicken Breast and Rice"
+    assert log_data["calories"] == 650.5
+    assert log_data["protein"] == 45.0
+    assert log_data["fat"] == 12.5
+    assert log_data["carbs"] == 70.0
+    nutrition_log_id = log_data["id"]
+
+    # Log second nutrition item
+    nutrition_payload_2 = {
+        "food_name": "Whey Protein Shake",
+        "calories": 150.0,
+        "protein": 30.0,
+        "fat": 1.5,
+        "carbs": 3.0
+    }
+    response = client.post(f"/api/nutrition/log/{signup_payload['email']}", json=nutrition_payload_2, headers=headers)
+    assert response.status_code == 200
+
+    # Get nutrition logs
+    response = client.get(f"/api/nutrition/logs/{signup_payload['email']}", headers=headers)
+    assert response.status_code == 200
+    history = response.json()
+    assert history["calories_today"] == 800.5
+    assert history["protein_today"] == 75.0
+    assert history["fat_today"] == 14.0
+    assert history["carbs_today"] == 73.0
+    assert len(history["logs"]) >= 2
+    assert history["logs"][0]["food_name"] == "Whey Protein Shake"
+
+    # Get nutrition graph
+    response = client.get(f"/api/nutrition/graph/{signup_payload['email']}?period=week", headers=headers)
+    assert response.status_code == 200
+    graph = response.json()
+    assert graph["period"] == "week"
+    assert len(graph["data"]) == 7
+
+    # Update nutrition log
+    update_payload = {
+        "food_name": "Chicken Breast, Rice & Broccoli",
+        "calories": 700.0,
+        "protein": 50.0,
+        "fat": 13.0,
+        "carbs": 75.0
+    }
+    response = client.put(f"/api/nutrition/log/{nutrition_log_id}", json=update_payload, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["food_name"] == "Chicken Breast, Rice & Broccoli"
+
+    # Re-verify totals
+    response = client.get(f"/api/nutrition/logs/{signup_payload['email']}", headers=headers)
+    assert response.json()["calories_today"] == 850.0
+    assert response.json()["protein_today"] == 80.0
+
+    # Delete nutrition log
+    response = client.delete(f"/api/nutrition/log/{nutrition_log_id}", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["message"] == "Nutrition log deleted successfully"
+
+    # Re-verify totals after deletion
+    response = client.get(f"/api/nutrition/logs/{signup_payload['email']}", headers=headers)
+    assert response.json()["calories_today"] == 150.0
+
+    print("Nutrition Intake API tests passed successfully!")
+
     db.close()
 
-    print("\nALL AUTHENTICATION, OTP, HEALTH, DASHBOARD, HYDRATION AND GRAPH TESTS PASSED SUCCESSFULLY!")
+    print("\nALL AUTHENTICATION, OTP, HEALTH, DASHBOARD, HYDRATION, NUTRITION, GRAPH, AND GYM/CHALLENGE TESTS PASSED SUCCESSFULLY!")
+
+
 
 if __name__ == "__main__":
     run_tests()

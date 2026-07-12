@@ -56,6 +56,10 @@ def add_water_log(email: str, log_data: schemas.WaterLogCreate, db: Session = De
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create water log."
         )
+        
+    from app.routers.challenges import sync_user_challenges_progress
+    sync_user_challenges_progress(db, user.id)
+    
     return {
         "id": log.id,
         "message": "Water intake logged successfully",
@@ -159,6 +163,10 @@ def update_log(log_id: int, log_data: schemas.WaterLogCreate, db: Session = Depe
             detail=f"Water log with ID {log_id} not found."
         )
     log = crud.update_water_log(db=db, db_log=db_log, log_data=log_data)
+    
+    from app.routers.challenges import sync_user_challenges_progress
+    sync_user_challenges_progress(db, db_log.user_id)
+    
     return {
         "id": log.id,
         "message": "Water intake logged successfully",
@@ -178,5 +186,9 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
             detail=f"Water log with ID {log_id} not found."
         )
     crud.delete_water_log(db=db, db_log=db_log)
+    
+    from app.routers.challenges import sync_user_challenges_progress
+    sync_user_challenges_progress(db, db_log.user_id)
+    
     return {"message": "Water log deleted successfully"}
 
