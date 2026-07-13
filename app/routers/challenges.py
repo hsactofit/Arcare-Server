@@ -239,8 +239,8 @@ def sync_user_challenges_progress(db: Session, user_id: int):
             check_ins_count = db.query(models.GymCheckIn).filter(
                 models.GymCheckIn.user_id == user_id,
                 models.GymCheckIn.check_out_time != None,
-                cast(models.GymCheckIn.check_in_time, Date) >= start_date,
-                cast(models.GymCheckIn.check_in_time, Date) <= end_date
+                func.date(models.GymCheckIn.check_in_time) >= start_date,
+                func.date(models.GymCheckIn.check_in_time) <= end_date
             ).count()
             progress = float(check_ins_count)
             
@@ -332,7 +332,7 @@ def populate_user_challenge_history(db: Session, uc: models.UserChallenge) -> di
                 progress = db.query(models.GymCheckIn).filter(
                     models.GymCheckIn.user_id == uc.user_id,
                     models.GymCheckIn.check_out_time != None,
-                    cast(models.GymCheckIn.check_in_time, Date) == d
+                    func.date(models.GymCheckIn.check_in_time) == d
                 ).count()
                 
             progress = float(progress)
@@ -996,7 +996,7 @@ def gym_check_in(
     recent_session = db.query(models.GymCheckIn).filter(
         models.GymCheckIn.user_id == current_user.id,
         models.GymCheckIn.check_out_time != None,
-        cast(models.GymCheckIn.check_in_time, Date) == today
+        func.date(models.GymCheckIn.check_in_time) == today
     ).order_by(models.GymCheckIn.check_out_time.desc()).first()
     
     if recent_session:
