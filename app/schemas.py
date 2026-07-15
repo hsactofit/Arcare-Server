@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional
 from datetime import datetime, date
 import datetime as dt_module
@@ -514,6 +514,254 @@ class ProfileUpdateRequest(BaseModel):
     profile: Optional[ProfileUpdateSchema] = None
     goals: Optional[List[str]] = None
     permissions: Optional[PermissionsUpdateSchema] = None
+
+
+# --- SOS Contact schemas ---
+class SOSContactCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255, description="Name of the emergency contact")
+    phone: str = Field(..., min_length=1, max_length=50, description="Phone number of the emergency contact")
+
+
+class SOSContactUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255, description="Name of the emergency contact")
+    phone: Optional[str] = Field(None, min_length=1, max_length=50, description="Phone number of the emergency contact")
+
+
+class SOSContactResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    phone: str
+
+    class Config:
+        from_attributes = True
+
+
+class SOSContactListResponse(BaseModel):
+    contacts: List[SOSContactResponse]
+    total: int
+
+
+# --- SOS Emergency service numbers schemas ---
+class SOSEmergencyUpdate(BaseModel):
+    police_number: Optional[str] = Field(None, min_length=1, max_length=50, description="Police emergency number")
+    ambulance_number: Optional[str] = Field(None, min_length=1, max_length=50, description="Ambulance emergency number")
+    fire_number: Optional[str] = Field(None, min_length=1, max_length=50, description="Fire emergency number")
+
+
+class SOSEmergencyResponse(BaseModel):
+    id: int
+    user_id: int
+    police_number: str
+    ambulance_number: str
+    fire_number: str
+
+    class Config:
+        from_attributes = True
+
+
+# --- Combined SOS overview ---
+class SOSResponse(BaseModel):
+    user_id: int
+    contacts: List[SOSContactResponse]
+    emergency_numbers: SOSEmergencyResponse
+
+    class Config:
+        from_attributes = True
+
+
+class SOSTriggerRequest(BaseModel):
+    latitude: Optional[float] = Field(None, description="Current latitude of the user")
+    longitude: Optional[float] = Field(None, description="Current longitude of the user")
+
+
+class SOSTriggerResponse(BaseModel):
+    message: str
+    notified_contacts: List[SOSContactResponse]
+    emergency_numbers: dict
+    location: Optional[dict] = None
+
+
+# --- Workout plan (date range + exercises) ---
+class WorkoutExerciseItem(BaseModel):
+    name: str = Field(..., description="Which exercise to do")
+    how_to: str = Field(..., description="How to perform the exercise")
+    sets: Optional[int] = Field(None, ge=1, description="How many sets")
+    reps: Optional[str] = Field(None, description="How many reps, e.g. '10-12' or 'AMRAP'")
+    duration_minutes: Optional[float] = Field(None, ge=0, description="Duration if timed (minutes)")
+    rest_seconds: Optional[int] = Field(None, ge=0, description="Rest between sets")
+    equipment: Optional[str] = Field(None, description="Equipment needed")
+    muscle_groups: Optional[List[str]] = None
+    image_url: Optional[str] = None
+
+
+class WorkoutDayItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    day_date: date = Field(..., description="Calendar date for this workout day", alias="date")
+    focus: Optional[str] = Field(None, description="e.g. Upper body, Legs, Rest")
+    is_rest_day: bool = False
+    notes: Optional[str] = None
+    exercises: List[WorkoutExerciseItem] = Field(default_factory=list)
+
+
+class WorkoutPlanCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    start_date: date
+    end_date: date
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    days: Optional[List[WorkoutDayItem]] = Field(
+        None,
+        description="Optional day-by-day schedule. If omitted, empty days are created for the range.",
+    )
+
+
+class WorkoutPlanUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    days: Optional[List[WorkoutDayItem]] = None
+
+
+class WorkoutPlanGenerateRequest(BaseModel):
+    """Optional AI fill for a date-range workout plan."""
+    title: Optional[str] = None
+    start_date: date
+    end_date: date
+    goal: Optional[str] = Field(None, description="e.g. Build muscle, Lose weight")
+    experience_level: Optional[str] = Field(None, description="Beginner / Intermediate / Advanced")
+    location: Optional[str] = Field(None, description="Home / Gym / Outdoor")
+    equipment: Optional[List[str]] = None
+    focus_areas: Optional[List[str]] = None
+    session_duration_minutes: Optional[int] = Field(None, ge=10, le=180)
+    notes: Optional[str] = None
+
+
+class WorkoutPlanResponse(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    start_date: date
+    end_date: date
+    days: List[WorkoutDayItem]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class WorkoutPlanListResponse(BaseModel):
+    plans: List[WorkoutPlanResponse]
+    total: int
+
+
+class WorkoutDayScheduleResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    day_date: date = Field(..., alias="date")
+    plan_id: Optional[int] = None
+    plan_title: Optional[str] = None
+    focus: Optional[str] = None
+    is_rest_day: bool = False
+    notes: Optional[str] = None
+    exercises: List[WorkoutExerciseItem] = Field(default_factory=list)
+
+
+# --- Nutrition plan (date range + meals) ---
+class NutritionMealItem(BaseModel):
+    meal_type: str = Field(..., description="breakfast | lunch | dinner | snack")
+    name: str = Field(..., description="What to eat")
+    how_to: Optional[str] = Field(None, description="How to prepare / eat")
+    portion: Optional[str] = Field(None, description="How much, e.g. '1 bowl', '200g'")
+    calories: Optional[float] = None
+    protein_g: Optional[float] = None
+    carbs_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    ingredients: Optional[List[str]] = None
+    image_url: Optional[str] = None
+
+
+class NutritionDayItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    day_date: date = Field(..., alias="date")
+    notes: Optional[str] = None
+    meals: List[NutritionMealItem] = Field(default_factory=list)
+
+
+class NutritionPlanCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    start_date: date
+    end_date: date
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    daily_calories_target: Optional[int] = Field(None, ge=800, le=6000)
+    days: Optional[List[NutritionDayItem]] = Field(
+        None,
+        description="Optional day-by-day meals. If omitted, empty days are created for the range.",
+    )
+
+
+class NutritionPlanUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    daily_calories_target: Optional[int] = Field(None, ge=800, le=6000)
+    days: Optional[List[NutritionDayItem]] = None
+
+
+class NutritionPlanGenerateRequest(BaseModel):
+    title: Optional[str] = None
+    start_date: date
+    end_date: date
+    goal: Optional[str] = None
+    dietary_preference: Optional[str] = None
+    allergies: Optional[List[str]] = None
+    meals_per_day: Optional[int] = Field(3, ge=2, le=6)
+    cuisine: Optional[str] = None
+    daily_calories_target: Optional[int] = Field(None, ge=800, le=6000)
+    notes: Optional[str] = None
+
+
+class NutritionPlanResponse(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    goal: Optional[str] = None
+    notes: Optional[str] = None
+    start_date: date
+    end_date: date
+    daily_calories_target: Optional[int] = None
+    days: List[NutritionDayItem]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class NutritionPlanListResponse(BaseModel):
+    plans: List[NutritionPlanResponse]
+    total: int
+
+
+class NutritionDayScheduleResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    day_date: date = Field(..., alias="date")
+    plan_id: Optional[int] = None
+    plan_title: Optional[str] = None
+    notes: Optional[str] = None
+    meals: List[NutritionMealItem] = Field(default_factory=list)
+
 
 
 

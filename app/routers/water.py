@@ -26,13 +26,9 @@ def get_water_logs(email: str, db: Session = Depends(get_db)):
         )
 
     logs = crud.get_user_water_logs(db=db, email=email, limit=7)
-    
-    # Calculate today's manual water logs sum
-    water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
-        models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == get_now_naive().date()
-    ).scalar() or 0
 
+    # Same authoritative daily total used by the dashboard
+    water_intake_today = crud.get_daily_water_intake(db, user.id, get_now_naive().date())
 
     return {
         "water_intake_today": water_intake_today,

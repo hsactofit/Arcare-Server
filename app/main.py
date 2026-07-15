@@ -1,8 +1,22 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import engine, Base
-from app.routers import onboarding, health, dashboard, auth, water, challenges, nutrition
+from app.routers import (
+    onboarding,
+    health,
+    dashboard,
+    auth,
+    water,
+    challenges,
+    nutrition,
+    sos,
+    workout,
+    nutrition_plan,
+)
 
 # Automatically create tables in SQLite on start
 Base.metadata.create_all(bind=engine)
@@ -22,6 +36,13 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# Serve generated workout / nutrition images
+_static_dir = Path(__file__).resolve().parent.parent / "static"
+_static_dir.mkdir(parents=True, exist_ok=True)
+(_static_dir / "workout_images").mkdir(parents=True, exist_ok=True)
+(_static_dir / "nutrition_images").mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
 # Include routers
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(onboarding.router, prefix=settings.API_PREFIX)
@@ -30,6 +51,10 @@ app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(water.router, prefix=settings.API_PREFIX)
 app.include_router(nutrition.router, prefix=settings.API_PREFIX)
 app.include_router(challenges.router, prefix=settings.API_PREFIX)
+app.include_router(sos.router, prefix=settings.API_PREFIX)
+app.include_router(workout.router, prefix=settings.API_PREFIX)
+app.include_router(nutrition_plan.router, prefix=settings.API_PREFIX)
+
 
 
 

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, ForeignKey, UniqueConstraint, Text
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Date, ForeignKey, UniqueConstraint, Text, JSON
 from sqlalchemy.orm import relationship, Mapped
 from datetime import datetime, timezone, date
 from typing import Optional
@@ -27,6 +27,10 @@ class User(Base):
     health_data = relationship("HealthData", back_populates="user", cascade="all, delete-orphan")
     water_logs = relationship("WaterLog", back_populates="user", cascade="all, delete-orphan")
     nutrition_logs = relationship("NutritionLog", back_populates="user", cascade="all, delete-orphan")
+    sos_config = relationship("SOSConfig", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    sos_contacts = relationship("SOSContact", back_populates="user", cascade="all, delete-orphan")
+    workout_plans = relationship("WorkoutPlan", back_populates="user", cascade="all, delete-orphan")
+    nutrition_plans = relationship("NutritionPlan", back_populates="user", cascade="all, delete-orphan")
 
 
 class Profile(Base):
@@ -238,3 +242,66 @@ class Exercise(Base):
     category: Mapped[Optional[str]] = Column(String(100), nullable=True)
 
 
+class SOSConfig(Base):
+    """Per-user emergency service numbers (police, ambulance, fire)."""
+    __tablename__ = "sos_configs"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+
+    police_number: Mapped[str] = Column(String(50), default="112", nullable=False)
+    ambulance_number: Mapped[str] = Column(String(50), default="102", nullable=False)
+    fire_number: Mapped[str] = Column(String(50), default="101", nullable=False)
+
+    user = relationship("User", back_populates="sos_config")
+
+
+class SOSContact(Base):
+    """Individual emergency contact for a user (CRUD-able)."""
+    __tablename__ = "sos_contacts"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = Column(String(255), nullable=False)
+    phone: Mapped[str] = Column(String(50), nullable=False)
+
+    user = relationship("User", back_populates="sos_contacts")
+
+
+class WorkoutPlan(Base):
+    """User workout plan for a date range (which exercises, how, how much)."""
+    __tablename__ = "workout_plans"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = Column(String(255), nullable=False)
+    goal: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = Column(Text, nullable=True)
+    start_date: Mapped[date] = Column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = Column(Date, nullable=False, index=True)
+    # [{date, focus, exercises: [{name, how_to, sets, reps, duration_minutes, rest_seconds, equipment, image_url}]}]
+    days: Mapped[list] = Column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = Column(DateTime, default=get_now_naive)
+    updated_at: Mapped[datetime] = Column(DateTime, default=get_now_naive, onupdate=get_now_naive)
+
+    user = relationship("User", back_populates="workout_plans")
+
+
+class NutritionPlan(Base):
+    """User nutrition plan for a date range (what to eat, how, how much)."""
+    __tablename__ = "nutrition_plans"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = Column(String(255), nullable=False)
+    goal: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = Column(Text, nullable=True)
+    start_date: Mapped[date] = Column(Date, nullable=False, index=True)
+    end_date: Mapped[date] = Column(Date, nullable=False, index=True)
+    daily_calories_target: Mapped[Optional[int]] = Column(Integer, nullable=True)
+    # [{date, meals: [{meal_type, name, how_to, portion, calories, protein_g, carbs_g, fat_g, image_url}], snacks: [...]}]
+    days: Mapped[list] = Column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = Column(DateTime, default=get_now_naive)
+    updated_at: Mapped[datetime] = Column(DateTime, default=get_now_naive, onupdate=get_now_naive)
+
+    user = relationship("User", back_populates="nutrition_plans")

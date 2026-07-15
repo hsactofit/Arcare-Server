@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # TarqaAI (workout plan generation)
+    TARQAAI_API_KEY: str = ""
+    TARQAAI_BASE_URL: str = "https://api.tarqaai.com/api"
+    TARQAAI_MODEL: str = "gemini-2.5-flash"
+
     class Config:
 
         env_file = ".env"

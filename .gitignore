@@ -17,3 +17,6 @@ pgadmin_data/
 
 # Environment configurations
 .env
+
+# Generated static assets (workout images, etc.)
+static/
