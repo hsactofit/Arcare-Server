@@ -4,10 +4,11 @@ from sqlalchemy import func, cast, Date
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, cast as t_cast
 
 from app.database import get_db
 from app import models, schemas, security, crud
+from app.config import IST, get_now_naive
 
 router = APIRouter(tags=["Challenges"])
 security_scheme = HTTPBearer()
@@ -33,7 +34,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 def seed_challenges_if_empty(db: Session):
     if db.query(models.Challenge).count() == 0:
-        now = datetime.now(timezone.utc)
+        now = get_now_naive()
         # Create some default challenges
         default_challenges = [
             models.Challenge(
@@ -254,7 +255,7 @@ def sync_user_challenges_progress(db: Session, user_id: int):
         
         if uc.currentProgress >= challenge.targetValue:
             uc.completed = True
-            uc.completedAt = datetime.now(timezone.utc)
+            uc.completedAt = get_now_naive()
             
     db.commit()
 
@@ -281,7 +282,7 @@ def populate_user_challenge_history(db: Session, uc: models.UserChallenge) -> di
         
     start_date = challenge.startDate.date()
     end_date = challenge.endDate.date()
-    today = datetime.now(timezone.utc).date()
+    today = get_now_naive().date()
     
     # Restrict tracking to the challenge period up to today
     track_start = max(start_date, uc.joinedAt.date())
@@ -407,7 +408,7 @@ def recalculate_leaderboard_ranks(db: Session, challenge_id: str):
         entry.progress = uc.currentProgress
         entry.percentile = percentile
         entry.completedAt = uc.completedAt
-        entry.lastUpdated = datetime.now(timezone.utc)
+        entry.lastUpdated = get_now_naive()
         
     db.commit()
 
@@ -829,7 +830,7 @@ def update_challenge_progress(
     if uc.currentProgress >= challenge.targetValue:
         if not uc.completed:
             uc.completed = True
-            uc.completedAt = datetime.now(timezone.utc)
+            uc.completedAt = get_now_naive()
     else:
         uc.completed = False
         uc.completedAt = None
@@ -980,19 +981,19 @@ def gym_check_in(
     
     if active_session:
         return schemas.GymCheckInResponse(
-            id=active_session.id,
-            userId=active_session.user_id,
-            qr_data=active_session.qr_data,
-            gym_name=active_session.gym_name,
-            check_in_time=active_session.check_in_time,
-            check_out_time=active_session.check_out_time,
-            exercises_done=active_session.exercises_done,
-            calories_burned=active_session.calories_burned,
+            id=t_cast(str, active_session.id),
+            userId=t_cast(int, active_session.user_id),
+            qr_data=t_cast(str, active_session.qr_data),
+            gym_name=t_cast(str, active_session.gym_name),
+            check_in_time=t_cast(datetime, active_session.check_in_time),
+            check_out_time=t_cast(Optional[datetime], active_session.check_out_time),
+            exercises_done=t_cast(Optional[str], active_session.exercises_done),
+            calories_burned=t_cast(float, active_session.calories_burned),
             message="Already checked in. Active session returned."
         )
         
     # Check if there is a recently checked-out session on the same day to extend/reopen it
-    today = datetime.now(timezone.utc).date()
+    today = get_now_naive().date()
     recent_session = db.query(models.GymCheckIn).filter(
         models.GymCheckIn.user_id == current_user.id,
         models.GymCheckIn.check_out_time != None,
@@ -1000,19 +1001,38 @@ def gym_check_in(
     ).order_by(models.GymCheckIn.check_out_time.desc()).first()
     
     if recent_session:
-        # Extend the session by clearing check_out_time
+        # Calculate the duration of the logged session
+        duration = recent_session.check_out_time - recent_session.check_in_time
+        
+        # Calculate the new check_in_time to shift it back by the logged duration
+        now = get_now_naive()
+        new_check_in_time = now - duration
+        
+        # Subtract the previous calories from the daily health data to prevent double counting
+        if recent_session.calories_burned:
+            db_health = db.query(models.HealthData).filter(
+                models.HealthData.user_id == current_user.id,
+                models.HealthData.date == today
+            ).first()
+            if db_health:
+                db_health.calories = max(0, int(round((db_health.calories or 0) - recent_session.calories_burned)))
+                
+        # Extend the session by clearing check_out_time and setting the shifted check_in_time
+        recent_session.check_in_time = new_check_in_time
         recent_session.check_out_time = None
+        recent_session.exercises_done = None
+        recent_session.calories_burned = 0.0
         db.commit()
         db.refresh(recent_session)
         return schemas.GymCheckInResponse(
-            id=recent_session.id,
-            userId=recent_session.user_id,
-            qr_data=recent_session.qr_data,
-            gym_name=recent_session.gym_name,
-            check_in_time=recent_session.check_in_time,
-            check_out_time=recent_session.check_out_time,
-            exercises_done=recent_session.exercises_done,
-            calories_burned=recent_session.calories_burned,
+            id=t_cast(str, recent_session.id),
+            userId=t_cast(int, recent_session.user_id),
+            qr_data=t_cast(str, recent_session.qr_data),
+            gym_name=t_cast(str, recent_session.gym_name),
+            check_in_time=t_cast(datetime, recent_session.check_in_time),
+            check_out_time=t_cast(Optional[datetime], recent_session.check_out_time),
+            exercises_done=t_cast(Optional[str], recent_session.exercises_done),
+            calories_burned=t_cast(float, recent_session.calories_burned),
             message="Gym check-in extended. Reopened recent session."
         )
         
@@ -1021,7 +1041,7 @@ def gym_check_in(
         user_id=current_user.id,
         qr_data=req.qr_data,
         gym_name=req.gym_name,
-        check_in_time=datetime.now(timezone.utc),
+        check_in_time=get_now_naive(),
         check_out_time=None,
         exercises_done=None,
         calories_burned=0.0
@@ -1031,14 +1051,14 @@ def gym_check_in(
     db.refresh(session)
     
     return schemas.GymCheckInResponse(
-        id=session.id,
-        userId=session.user_id,
-        qr_data=session.qr_data,
-        gym_name=session.gym_name,
-        check_in_time=session.check_in_time,
-        check_out_time=session.check_out_time,
-        exercises_done=session.exercises_done,
-        calories_burned=session.calories_burned,
+        id=t_cast(str, session.id),
+        userId=t_cast(int, session.user_id),
+        qr_data=t_cast(str, session.qr_data),
+        gym_name=t_cast(str, session.gym_name),
+        check_in_time=t_cast(datetime, session.check_in_time),
+        check_out_time=t_cast(Optional[datetime], session.check_out_time),
+        exercises_done=t_cast(Optional[str], session.exercises_done),
+        calories_burned=t_cast(float, session.calories_burned),
         message="Gym check-in successful."
     )
 
@@ -1074,7 +1094,7 @@ def gym_check_out(
     )
     
     total_calories = 0.0
-    serialized_exercises = []
+    serialized_exercises: List[Dict[str, Any]] = []
     
     if has_profile:
         weight = current_user.profile.weight
@@ -1114,12 +1134,12 @@ def gym_check_out(
                 "calories_burned": 0.0
             })
             
-    active_session.check_out_time = datetime.now(timezone.utc)
+    active_session.check_out_time = get_now_naive()
     active_session.exercises_done = json.dumps(serialized_exercises)
     active_session.calories_burned = total_calories
     
     # Also update the daily aggregated health data for today
-    today = datetime.now(timezone.utc).date()
+    today = get_now_naive().date()
     db_health = db.query(models.HealthData).filter(
         models.HealthData.user_id == current_user.id,
         models.HealthData.date == today
@@ -1133,24 +1153,24 @@ def gym_check_out(
         )
         db.add(db_health)
     else:
-        db_health.calories = (db_health.calories or 0.0) + total_calories
-        db_health.updated_at = datetime.now(timezone.utc)
+        db_health.calories = int(round((t_cast(int, db_health.calories) or 0) + total_calories))
+        db_health.updated_at = get_now_naive()
         
     db.commit()
     db.refresh(active_session)
     
     # Trigger challenge progress sync
-    sync_user_challenges_progress(db, current_user.id)
+    sync_user_challenges_progress(db, t_cast(int, current_user.id))
     
     return schemas.GymCheckInResponse(
-        id=active_session.id,
-        userId=active_session.user_id,
-        qr_data=active_session.qr_data,
-        gym_name=active_session.gym_name,
-        check_in_time=active_session.check_in_time,
-        check_out_time=active_session.check_out_time,
-        exercises_done=active_session.exercises_done,
-        calories_burned=active_session.calories_burned,
+        id=t_cast(str, active_session.id),
+        userId=t_cast(int, active_session.user_id),
+        qr_data=t_cast(str, active_session.qr_data),
+        gym_name=t_cast(str, active_session.gym_name),
+        check_in_time=t_cast(datetime, active_session.check_in_time),
+        check_out_time=t_cast(Optional[datetime], active_session.check_out_time),
+        exercises_done=t_cast(Optional[str], active_session.exercises_done),
+        calories_burned=t_cast(float, active_session.calories_burned),
         message="Gym check-out successful."
     )
 

@@ -322,6 +322,12 @@ def run_tests():
     assert dashboard_data["wellness_score"] > 0
     assert "water_intake_today" in dashboard_data
     assert isinstance(dashboard_data["water_intake_today"], int)
+    assert "protein_today" in dashboard_data
+    assert isinstance(dashboard_data["protein_today"], (int, float))
+    assert "carbs_today" in dashboard_data
+    assert isinstance(dashboard_data["carbs_today"], (int, float))
+    assert "fat_today" in dashboard_data
+    assert isinstance(dashboard_data["fat_today"], (int, float))
     # Expected: avg steps=6357, calories=475, sleep=7.74, water=2171
     # step target=10000 (score=19.07), calories target=600 (score=19.82)
     # sleep target=8.0 (score=24.19), water target=2500 (score=17.37)
@@ -365,6 +371,12 @@ def run_tests():
     assert isinstance(sync_res["mindfulness_subscore"], int)
     assert isinstance(sync_res["water_intake_today"], int)
     assert isinstance(sync_res["goals"], dict)
+    assert "protein_today" in sync_res
+    assert isinstance(sync_res["protein_today"], (int, float))
+    assert "carbs_today" in sync_res
+    assert isinstance(sync_res["carbs_today"], (int, float))
+    assert "fat_today" in sync_res
+    assert isinstance(sync_res["fat_today"], (int, float))
 
     print("\n--- 21. Testing Logging Water Intake (POST /api/water/log/{email}) ---")
     water_log_payload = {"amount": 250}
@@ -747,6 +759,43 @@ def run_tests():
     response = client.post("/api/gym/check-out", json=checkout_payload, headers=headers)
     assert response.status_code == 200
     assert response.json()["check_out_time"] is not None
+
+    # Verify the dashboard returns the latest gym session
+    response = client.get(f"/api/dashboard/{signup_payload['email']}")
+    assert response.status_code == 200
+    dashboard_data = response.json()
+    assert "latest_gym_session" in dashboard_data
+    assert dashboard_data["latest_gym_session"] is not None
+    assert dashboard_data["latest_gym_session"]["id"] == checkout_res["id"]
+    print("Latest gym session verified on dashboard successfully!")
+
+    # Test Auto Checkout at Midnight for old active sessions
+    db_session = db
+    yesterday_checkin = app.models.GymCheckIn(
+        id="test-yesterday-session-id",
+        user_id=1,
+        qr_data="gym_qr_yesterday",
+        gym_name="Yesterday Gym",
+        check_in_time=datetime.now() - timedelta(days=1),
+        check_out_time=None
+    )
+    db_session.add(yesterday_checkin)
+    db_session.commit()
+
+    # Query the dashboard, which should trigger auto-checkout
+    response = client.get(f"/api/dashboard/{signup_payload['email']}")
+    assert response.status_code == 200
+    
+    # Verify it is closed
+    db_session.expire_all()
+    session_in_db = db_session.query(app.models.GymCheckIn).filter(app.models.GymCheckIn.id == "test-yesterday-session-id").first()
+    assert session_in_db.check_out_time is not None
+    print("Old active gym session auto-checked out at midnight successfully!")
+    
+    # Clean up
+    db_session.delete(session_in_db)
+    db_session.commit()
+
 
     # Test GET /api/profile
     print("\n--- Testing GET /api/profile ---")

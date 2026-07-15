@@ -1,7 +1,8 @@
 import bcrypt
 import jwt
 from datetime import datetime, timedelta, timezone
-from app.config import settings
+from typing import Optional
+from app.config import settings, IST
 
 def hash_password(password: str) -> str:
     """
@@ -25,27 +26,27 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     except Exception:
         return False
 
-def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Creates a JWT access token.
     """
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(IST) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(IST) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
 
-def create_refresh_token(data: dict, expires_delta: timedelta = None) -> str:
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Creates a JWT refresh token.
     """
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(IST) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(IST) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "type": "refresh"})
     return jwt.encode(to_encode, settings.JWT_REFRESH_SECRET_KEY, algorithm=settings.ALGORITHM)
 
@@ -78,8 +79,8 @@ def verify_google_token(token: str) -> dict:
 
     # Attempt to verify using Google's SDK if available
     try:
-        from google.oauth2 import id_token
-        from google.auth.transport import requests
+        from google.oauth2 import id_token  # type: ignore
+        from google.auth.transport import requests  # type: ignore
         # verify against google backend as ID Token
         idinfo = id_token.verify_oauth2_token(token, requests.Request(), None)
         return {

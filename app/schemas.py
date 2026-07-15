@@ -53,7 +53,7 @@ class DailyHealthData(BaseModel):
     steps: Optional[int] = 0
     calories: Optional[int] = 0
     sleep_duration_hours: Optional[float] = 0.0
-    water_intake_ml: Optional[int] = 0
+    water_intake_ml: Optional[int] = None
     workouts_count: Optional[int] = 0
     heart_rate_bpm: Optional[int] = 70
 
@@ -101,6 +101,20 @@ class MetricGraphResponse(BaseModel):
 
 
 # Dashboard Widgets / Response Schema
+class GymSessionResponse(BaseModel):
+    id: str
+    userId: int
+    qr_data: str
+    gym_name: str
+    check_in_time: datetime
+    check_out_time: Optional[datetime] = None
+    exercises_done: Optional[str] = None
+    calories_burned: float = 0.0
+
+    class Config:
+        from_attributes = True
+
+
 class DashboardWidget(BaseModel):
     title: str
     value: str
@@ -115,6 +129,10 @@ class DashboardResponse(BaseModel):
     widgets: List[DashboardWidget]
     water_intake_today: int
     last_synced_date: Optional[date] = None
+    protein_today: float = 0.0
+    carbs_today: float = 0.0
+    fat_today: float = 0.0
+    latest_gym_session: Optional[GymSessionResponse] = None
 
 class DashboardSyncResponse(BaseModel):
     wellness_score: int
@@ -127,6 +145,11 @@ class DashboardSyncResponse(BaseModel):
     ai_buddy_message: str
     water_intake_today: int
     goals: dict[str, float]
+    protein_today: float = 0.0
+    carbs_today: float = 0.0
+    fat_today: float = 0.0
+    latest_gym_session: Optional[GymSessionResponse] = None
+
 
 
 

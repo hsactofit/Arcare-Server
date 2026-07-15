@@ -19,3 +19,11 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 settings = Settings()
+
+from datetime import timezone, timedelta, datetime
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_now_naive():
+    return datetime.now(IST).replace(tzinfo=None)
+
+

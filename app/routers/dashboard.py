@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date, datetime, timezone
-from typing import List
+from typing import List, Optional, cast
 from app.database import get_db
 from app import schemas, crud, models
+from app.config import IST, get_now_naive
 
 router = APIRouter(
     prefix="/dashboard",
@@ -12,7 +13,7 @@ router = APIRouter(
 )
 
 
-def calculate_wellness_metrics(goals: List[str], recent_health: list, user_weight: float = None):
+def calculate_wellness_metrics(goals: List[str], recent_health: list, user_weight: Optional[float] = None):
     # Calculate 7-day average values
     if recent_health:
         num_records = len(recent_health)
@@ -127,7 +128,7 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
     # 3. Retrieve Last 7 Days of Synced Health Data
     recent_health = crud.get_recent_user_health_data(db, email, limit=7)
     latest_data = recent_health[0] if recent_health else None
-    last_synced_date = latest_data.date if latest_data else None
+    last_synced_date = cast(date, latest_data.date) if latest_data else None
 
     # Establish baseline values for latest day's widgets
     steps = latest_data.steps if latest_data else 0
@@ -176,6 +177,14 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
     if not challenges:
         challenges.append("Healthy Habits Kickstart (7 days)")
 
+    # Calculate today's manual water logs sum
+    water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
+        models.WaterLog.user_id == user.id,
+        func.date(models.WaterLog.timestamp) == get_now_naive().date()
+    ).scalar() or 0
+
+    latest_gym_session = crud.get_latest_gym_session(db, user.id)
+
     # 6. Compose Dashboard Widgets
     widgets = [
         schemas.DashboardWidget(
@@ -201,10 +210,10 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
         ),
         schemas.DashboardWidget(
             title="Water Intake",
-            value=str(water),
+            value=str(water_intake_today),
             target=str(water_target),
             unit="ml",
-            status="Hydrated" if water >= water_target else "Dehydrated"
+            status="Hydrated" if water_intake_today >= water_target else "Dehydrated"
         ),
         schemas.DashboardWidget(
             title="Active Challenges",
@@ -244,11 +253,20 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
         f"Your current daily wellness score is {wellness_score}%."
     )
 
-    # Calculate today's manual water logs sum
-    water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
-        models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
-    ).scalar() or 0
+    # Calculate today's nutrition macros sum
+    today = get_now_naive().date()
+    nutrition_today = db.query(
+        func.sum(models.NutritionLog.protein).label("protein"),
+        func.sum(models.NutritionLog.carbs).label("carbs"),
+        func.sum(models.NutritionLog.fat).label("fat")
+    ).filter(
+        models.NutritionLog.user_id == user.id,
+        func.date(models.NutritionLog.timestamp) == today
+    ).first()
+
+    protein_today = float(nutrition_today.protein or 0.0) if nutrition_today else 0.0
+    carbs_today = float(nutrition_today.carbs or 0.0) if nutrition_today else 0.0
+    fat_today = float(nutrition_today.fat or 0.0) if nutrition_today else 0.0
 
     return schemas.DashboardResponse(
         wellness_score=wellness_score,
@@ -256,7 +274,11 @@ def get_dashboard_data(email: str, db: Session = Depends(get_db)):
         recommendations=recommendations,
         widgets=widgets,
         water_intake_today=water_intake_today,
-        last_synced_date=last_synced_date
+        last_synced_date=last_synced_date,
+        protein_today=protein_today,
+        carbs_today=carbs_today,
+        fat_today=fat_today,
+        latest_gym_session=latest_gym_session
     )
 
 
@@ -327,8 +349,25 @@ def sync_dashboard_data(
     # Calculate today's manual water logs sum
     water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
         models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
+        func.date(models.WaterLog.timestamp) == get_now_naive().date()
     ).scalar() or 0
+
+    latest_gym_session = crud.get_latest_gym_session(db, user.id)
+
+    # Calculate today's nutrition macros sum
+    today = get_now_naive().date()
+    nutrition_today = db.query(
+        func.sum(models.NutritionLog.protein).label("protein"),
+        func.sum(models.NutritionLog.carbs).label("carbs"),
+        func.sum(models.NutritionLog.fat).label("fat")
+    ).filter(
+        models.NutritionLog.user_id == user.id,
+        func.date(models.NutritionLog.timestamp) == today
+    ).first()
+
+    protein_today = float(nutrition_today.protein or 0.0) if nutrition_today else 0.0
+    carbs_today = float(nutrition_today.carbs or 0.0) if nutrition_today else 0.0
+    fat_today = float(nutrition_today.fat or 0.0) if nutrition_today else 0.0
 
     return schemas.DashboardSyncResponse(
         wellness_score=wellness_score,
@@ -340,6 +379,10 @@ def sync_dashboard_data(
         recommendations=recommendations,
         ai_buddy_message=ai_buddy_message,
         water_intake_today=water_intake_today,
-        goals=metrics["goals"]
+        goals=metrics["goals"],
+        protein_today=protein_today,
+        carbs_today=carbs_today,
+        fat_today=fat_today,
+        latest_gym_session=latest_gym_session
     )
 

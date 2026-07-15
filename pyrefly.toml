@@ -1,0 +1,8 @@
+python-interpreter-path = "venv/bin/python"
+
+project-excludes = [
+    "**/venv/**",
+    "**/__pycache__/**"
+]
+
+replace-imports-with-any = ["sqlalchemy.*"]

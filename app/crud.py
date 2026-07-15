@@ -3,6 +3,7 @@ from datetime import datetime, timezone, date
 from typing import List
 from app import models, schemas
 from app.security import hash_password, verify_password
+from app.config import IST, get_now_naive
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
@@ -225,7 +226,7 @@ def sync_user_health_data(db: Session, email: str, sync_list: List[schemas.Daily
         if item.heart_rate_bpm is not None:
             db_health.heart_rate_bpm = item.heart_rate_bpm
 
-        db_health.updated_at = datetime.now(timezone.utc)
+        db_health.updated_at = get_now_naive()
         updated_records.append(db_health)
 
     cleanup_old_user_data(db, user.id)
@@ -331,7 +332,7 @@ def create_password_reset_otp(db: Session, email: str) -> str:
     otp = "".join(secrets.choice("0123456789") for _ in range(6))
     
     # Expires in 10 minutes
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    expires_at = get_now_naive() + timedelta(minutes=10)
     
     db_otp = models.PasswordResetOTP(
         email=email,
@@ -356,7 +357,7 @@ def verify_password_reset_otp(db: Session, email: str, otp_code: str) -> bool:
         return False
         
     # Check expiry
-    if db_otp.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+    if db_otp.expires_at < get_now_naive():
         return False
         
     return True
@@ -392,12 +393,12 @@ def create_water_log(db: Session, email: str, log_data: schemas.WaterLogCreate):
     db_log = models.WaterLog(
         user_id=user.id,
         amount=log_data.amount,
-        timestamp=log_data.timestamp or datetime.now(timezone.utc)
+        timestamp=log_data.timestamp or get_now_naive()
     )
     db.add(db_log)
     
     # Also update the daily aggregated health data for today
-    today = datetime.now(timezone.utc).date()
+    today = get_now_naive().date()
     db_health = db.query(models.HealthData).filter(
         models.HealthData.user_id == user.id,
         models.HealthData.date == today
@@ -412,7 +413,7 @@ def create_water_log(db: Session, email: str, log_data: schemas.WaterLogCreate):
         db.add(db_health)
     else:
         db_health.water_intake_ml += log_data.amount
-        db_health.updated_at = datetime.now(timezone.utc)
+        db_health.updated_at = get_now_naive()
         
     cleanup_old_user_data(db, user.id)
     db.commit()
@@ -444,7 +445,7 @@ def update_water_log(db: Session, db_log: models.WaterLog, log_data: schemas.Wat
         ).first()
         if db_health:
             db_health.water_intake_ml += amount_diff
-            db_health.updated_at = datetime.now(timezone.utc)
+            db_health.updated_at = get_now_naive()
     else:
         # Subtract from old date
         db_health_old = db.query(models.HealthData).filter(
@@ -453,7 +454,7 @@ def update_water_log(db: Session, db_log: models.WaterLog, log_data: schemas.Wat
         ).first()
         if db_health_old:
             db_health_old.water_intake_ml = max(0, db_health_old.water_intake_ml - old_amount)
-            db_health_old.updated_at = datetime.now(timezone.utc)
+            db_health_old.updated_at = get_now_naive()
             
         # Add to new date
         db_health_new = db.query(models.HealthData).filter(
@@ -469,7 +470,7 @@ def update_water_log(db: Session, db_log: models.WaterLog, log_data: schemas.Wat
             db.add(db_health_new)
         else:
             db_health_new.water_intake_ml += log_data.amount
-            db_health_new.updated_at = datetime.now(timezone.utc)
+            db_health_new.updated_at = get_now_naive()
             
     cleanup_old_user_data(db, db_log.user_id)
     db.commit()
@@ -492,7 +493,7 @@ def delete_water_log(db: Session, db_log: models.WaterLog):
     ).first()
     if db_health:
         db_health.water_intake_ml = max(0, db_health.water_intake_ml - amount)
-        db_health.updated_at = datetime.now(timezone.utc)
+        db_health.updated_at = get_now_naive()
         
     db.commit()
 
@@ -577,7 +578,7 @@ def create_nutrition_log(db: Session, email: str, log_data: schemas.NutritionLog
         protein=log_data.protein,
         fat=log_data.fat,
         carbs=log_data.carbs,
-        timestamp=log_data.timestamp or datetime.now(timezone.utc)
+        timestamp=log_data.timestamp or get_now_naive()
     )
     db.add(db_log)
     cleanup_old_user_data(db, user.id)
@@ -608,6 +609,37 @@ def update_nutrition_log(db: Session, db_log: models.NutritionLog, log_data: sch
 def delete_nutrition_log(db: Session, db_log: models.NutritionLog):
     db.delete(db_log)
     db.commit()
+
+
+def auto_checkout_gym_sessions(db: Session, user_id: int):
+    from datetime import timedelta
+    today = get_now_naive().date()
+    open_sessions = db.query(models.GymCheckIn).filter(
+        models.GymCheckIn.user_id == user_id,
+        models.GymCheckIn.check_out_time == None
+    ).all()
+    
+    updated = False
+    for session in open_sessions:
+        session_date = session.check_in_time.date()
+        if session_date < today:
+            # Auto check-out at midnight of that check-in date
+            midnight = datetime.combine(session_date + timedelta(days=1), datetime.min.time())
+            session.check_out_time = midnight
+            session.exercises_done = None
+            session.calories_burned = 0.0
+            updated = True
+            
+    if updated:
+        db.commit()
+
+
+def get_latest_gym_session(db: Session, user_id: int):
+    auto_checkout_gym_sessions(db, user_id)
+    return db.query(models.GymCheckIn).filter(
+        models.GymCheckIn.user_id == user_id
+    ).order_by(models.GymCheckIn.check_in_time.desc()).first()
+
 
 
 

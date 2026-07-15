@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app import schemas, crud, models
-from typing import List
+from app.config import IST, get_now_naive
+from typing import List, cast
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -27,7 +28,7 @@ def get_nutrition_logs(email: str, db: Session = Depends(get_db)):
     logs = crud.get_user_nutrition_logs(db=db, email=email, limit=7)
     
     # Calculate today's nutrition totals
-    today = datetime.now(timezone.utc).date()
+    today = get_now_naive().date()
     totals = db.query(
         func.sum(models.NutritionLog.calories).label("calories"),
         func.sum(models.NutritionLog.protein).label("protein"),
@@ -38,10 +39,10 @@ def get_nutrition_logs(email: str, db: Session = Depends(get_db)):
         func.date(models.NutritionLog.timestamp) == today
     ).first()
 
-    calories_today = float(totals.calories or 0)
-    protein_today = float(totals.protein or 0)
-    fat_today = float(totals.fat or 0)
-    carbs_today = float(totals.carbs or 0)
+    calories_today = float(totals.calories or 0) if totals else 0.0
+    protein_today = float(totals.protein or 0) if totals else 0.0
+    fat_today = float(totals.fat or 0) if totals else 0.0
+    carbs_today = float(totals.carbs or 0) if totals else 0.0
 
     return {
         "calories_today": calories_today,
@@ -71,7 +72,7 @@ def add_nutrition_log(email: str, log_data: schemas.NutritionLogCreate, db: Sess
         )
         
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, user.id)
+    sync_user_challenges_progress(db, cast(int, user.id))
     
     return {
         "id": log.id,
@@ -112,10 +113,10 @@ def get_nutrition_graph(email: str, period: str = "week", db: Session = Depends(
         for log in logs:
             hour_str = log.timestamp.strftime("%H:00")
             if hour_str in hourly_data:
-                hourly_data[hour_str]["calories"] += log.calories
-                hourly_data[hour_str]["protein"] += log.protein
-                hourly_data[hour_str]["fat"] += log.fat
-                hourly_data[hour_str]["carbs"] += log.carbs
+                hourly_data[hour_str]["calories"] += cast(float, log.calories)
+                hourly_data[hour_str]["protein"] += cast(float, log.protein)
+                hourly_data[hour_str]["fat"] += cast(float, log.fat)
+                hourly_data[hour_str]["carbs"] += cast(float, log.carbs)
                 
         data_points = [
             schemas.NutritionGraphDataPoint(
@@ -145,10 +146,10 @@ def get_nutrition_graph(email: str, period: str = "week", db: Session = Depends(
         for log in logs:
             date_str = log.timestamp.strftime("%Y-%m-%d")
             if date_str in daily_data:
-                daily_data[date_str]["calories"] += log.calories
-                daily_data[date_str]["protein"] += log.protein
-                daily_data[date_str]["fat"] += log.fat
-                daily_data[date_str]["carbs"] += log.carbs
+                daily_data[date_str]["calories"] += cast(float, log.calories)
+                daily_data[date_str]["protein"] += cast(float, log.protein)
+                daily_data[date_str]["fat"] += cast(float, log.fat)
+                daily_data[date_str]["carbs"] += cast(float, log.carbs)
                 
         data_points = [
             schemas.NutritionGraphDataPoint(
@@ -178,10 +179,10 @@ def get_nutrition_graph(email: str, period: str = "week", db: Session = Depends(
         for log in logs:
             date_str = log.timestamp.strftime("%Y-%m-%d")
             if date_str in daily_data:
-                daily_data[date_str]["calories"] += log.calories
-                daily_data[date_str]["protein"] += log.protein
-                daily_data[date_str]["fat"] += log.fat
-                daily_data[date_str]["carbs"] += log.carbs
+                daily_data[date_str]["calories"] += cast(float, log.calories)
+                daily_data[date_str]["protein"] += cast(float, log.protein)
+                daily_data[date_str]["fat"] += cast(float, log.fat)
+                daily_data[date_str]["carbs"] += cast(float, log.carbs)
                 
         data_points = [
             schemas.NutritionGraphDataPoint(
@@ -215,7 +216,7 @@ def update_log(log_id: int, log_data: schemas.NutritionLogCreate, db: Session = 
     log = crud.update_nutrition_log(db=db, db_log=db_log, log_data=log_data)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, db_log.user_id)
+    sync_user_challenges_progress(db, cast(int, db_log.user_id))
     
     return {
         "id": log.id,
@@ -242,6 +243,6 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
     crud.delete_nutrition_log(db=db, db_log=db_log)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, db_log.user_id)
+    sync_user_challenges_progress(db, cast(int, db_log.user_id))
     
     return {"message": "Nutrition log deleted successfully"}

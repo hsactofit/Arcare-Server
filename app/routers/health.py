@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Path, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import schemas, crud, models
-from typing import List, Optional
+from app.config import IST, get_now_naive
+from typing import List, Optional, Dict, Any, cast
 from datetime import date, datetime, timezone, timedelta
 
 router = APIRouter(
@@ -36,7 +37,7 @@ def sync_health_data(
     updated_data = crud.sync_user_health_data(db=db, email=email, sync_list=sync_list)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, user.id)
+    sync_user_challenges_progress(db, cast(int, user.id))
     
     return updated_data
 
@@ -189,13 +190,13 @@ def log_metric(
         calories_burned = int(round(req.value * 0.0006125 * weight))
         db_health.calories = calories_burned
         
-    db_health.updated_at = datetime.now(timezone.utc)
-    crud.cleanup_old_user_data(db, user.id)
+    db_health.updated_at = get_now_naive()
+    crud.cleanup_old_user_data(db, cast(int, user.id))
     db.commit()
     db.refresh(db_health)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, user.id)
+    sync_user_challenges_progress(db, cast(int, user.id))
     
     return schemas.MetricLogResponse(
         message=f"Successfully logged {req.metric} value of {req.value}",
@@ -488,16 +489,16 @@ def get_progress_trends(
     targets = get_user_targets_helper(user)
     
     # 2. Build daily history list
-    history_list = []
+    history_list: List[Dict[str, Any]] = []
     current_date = start_date
     while current_date <= today:
         date_str = current_date.strftime("%Y-%m-%d")
         log = logs_map.get(date_str)
         
-        steps = float(log.steps) if log and log.steps is not None else 0.0
-        calories = float(log.calories) if log and log.calories is not None else 0.0
-        sleep = float(log.sleep_duration_hours) if log and log.sleep_duration_hours is not None else 0.0
-        water = float(log.water_intake_ml) if log and log.water_intake_ml is not None else 0.0
+        steps = float(cast(int, log.steps)) if log and log.steps is not None else 0.0
+        calories = float(cast(int, log.calories)) if log and log.calories is not None else 0.0
+        sleep = float(cast(float, log.sleep_duration_hours)) if log and log.sleep_duration_hours is not None else 0.0
+        water = float(cast(int, log.water_intake_ml)) if log and log.water_intake_ml is not None else 0.0
         
         # Check target completion (yes/no)
         steps_comp = "yes" if steps >= targets["steps"] else "no"

@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app import schemas, crud, models
-from typing import List
+from app.config import IST, get_now_naive
+from typing import List, cast
 
 from datetime import date, datetime, timedelta, timezone
 
@@ -29,7 +30,7 @@ def get_water_logs(email: str, db: Session = Depends(get_db)):
     # Calculate today's manual water logs sum
     water_intake_today = db.query(func.sum(models.WaterLog.amount)).filter(
         models.WaterLog.user_id == user.id,
-        func.date(models.WaterLog.timestamp) == datetime.now(timezone.utc).date()
+        func.date(models.WaterLog.timestamp) == get_now_naive().date()
     ).scalar() or 0
 
 
@@ -58,7 +59,7 @@ def add_water_log(email: str, log_data: schemas.WaterLogCreate, db: Session = De
         )
         
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, user.id)
+    sync_user_challenges_progress(db, cast(int, user.id))
     
     return {
         "id": log.id,
@@ -95,7 +96,7 @@ def get_water_graph(email: str, period: str = "week", db: Session = Depends(get_
         for log in logs:
             hour_str = log.timestamp.strftime("%H:00")
             if hour_str in hourly_data:
-                hourly_data[hour_str] += log.amount
+                hourly_data[hour_str] += cast(int, log.amount)
                 
         data_points = [schemas.WaterGraphDataPoint(label=k, amount=v) for k, v in hourly_data.items()]
         
@@ -117,7 +118,7 @@ def get_water_graph(email: str, period: str = "week", db: Session = Depends(get_
         for log in logs:
             date_str = log.timestamp.strftime("%Y-%m-%d")
             if date_str in daily_data:
-                daily_data[date_str] += log.amount
+                daily_data[date_str] += cast(int, log.amount)
                 
         data_points = [schemas.WaterGraphDataPoint(label=k, amount=v) for k, v in daily_data.items()]
         
@@ -139,7 +140,7 @@ def get_water_graph(email: str, period: str = "week", db: Session = Depends(get_
         for log in logs:
             date_str = log.timestamp.strftime("%Y-%m-%d")
             if date_str in daily_data:
-                daily_data[date_str] += log.amount
+                daily_data[date_str] += cast(int, log.amount)
                 
         data_points = [schemas.WaterGraphDataPoint(label=k, amount=v) for k, v in daily_data.items()]
         
@@ -165,7 +166,7 @@ def update_log(log_id: int, log_data: schemas.WaterLogCreate, db: Session = Depe
     log = crud.update_water_log(db=db, db_log=db_log, log_data=log_data)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, db_log.user_id)
+    sync_user_challenges_progress(db, cast(int, db_log.user_id))
     
     return {
         "id": log.id,
@@ -188,7 +189,7 @@ def delete_log(log_id: int, db: Session = Depends(get_db)):
     crud.delete_water_log(db=db, db_log=db_log)
     
     from app.routers.challenges import sync_user_challenges_progress
-    sync_user_challenges_progress(db, db_log.user_id)
+    sync_user_challenges_progress(db, cast(int, db_log.user_id))
     
     return {"message": "Water log deleted successfully"}
 
